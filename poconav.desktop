@@ -1,0 +1,19 @@
+[Desktop Entry]
+Type=Application
+Name=PocoNav
+GenericName=Navigation
+GenericName[es]=Navegación
+Comment=Maps and road navigation
+Comment[es]=Mapas y navegación por carretera
+Exec=poconav
+Icon=poconav
+Terminal=false
+Categories=Utility;Maps;Qt;
+Keywords=map;gps;navigation;route;maps;
+Keywords[es]=mapa;gps;navegación;ruta;maps;navigation;
+# Without this, Plasma does not tie the window to this launcher: the task bar
+# shows it with no icon and no name. The identifier is built by Qt from
+# QGuiApplication::setDesktopFileName(), so the two have to say the same thing
+# -- with qmlscene it was 'org.qt-project.qmlscene' and that is why it came out
+# generic.
+StartupWMClass=poconav
