@@ -1,0 +1,8 @@
+{
+    "UrlTemplate": "https://tile.openstreetmap.org/%z/%x/%y.png",
+    "ImageFormat": "png",
+    "MapCopyRight": "© OpenStreetMap",
+    "DataCopyRight": "© OpenStreetMap contributors",
+    "MinimumZoomLevel": 0,
+    "MaximumZoomLevel": 19
+}

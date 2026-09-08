@@ -1,0 +1,35 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  PocoNav.
+
+  A pin with a compass needle for a head, on the same blue as the maneuver card
+  (see Theme.qml). The two ideas the application is about, in one shape: where
+  you are, and which way you are pointing.
+
+  Flat colours only, no gradients or filters: this is rendered by QSvg for the
+  launcher and the task switcher, and the exotic parts of SVG are exactly where
+  QSvg stops being reliable.
+-->
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" width="64" height="64">
+  <circle cx="32" cy="32" r="31" fill="#1a73e8"/>
+
+  <!-- The bezel. Four ticks is enough to read as a compass and few enough to
+       survive being drawn at 22 px in the task switcher. -->
+  <g fill="#ffffff" opacity="0.45">
+    <rect x="31" y="4" width="2" height="5" rx="1"/>
+    <rect x="31" y="55" width="2" height="5" rx="1"/>
+    <rect x="4" y="31" width="5" height="2" rx="1"/>
+    <rect x="55" y="31" width="5" height="2" rx="1"/>
+  </g>
+
+  <!-- The pin. Fat on purpose: with a narrower head the needle inside turned to
+       mush below 32 px, which is the size that actually gets looked at. -->
+  <path d="M32,53 C32,53 17,39 17,26 A15,15 0 1,1 47,26 C47,39 32,53 32,53 Z"
+        fill="#ffffff"/>
+
+  <!-- The needle in its head: north in red, south in the card's own blue, the
+       way every compass in the world is drawn. -->
+  <path d="M32,13 L37.5,26 L26.5,26 Z" fill="#ea4335"/>
+  <path d="M32,39 L37.5,26 L26.5,26 Z" fill="#1a73e8"/>
+  <circle cx="32" cy="26" r="2.6" fill="#202124"/>
+</svg>
