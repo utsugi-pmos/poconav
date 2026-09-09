@@ -39,11 +39,11 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 # moment. Whoever arrives second does not start ("Address in use"), and since the one
 # that does start answers /status with a 404, PocoNav would fall back to the network
 # without saying why. It already happened during testing.
-PUERTO = 8554
+PORT = 8554
 
 _actor = None
-_cerrojo = threading.Lock()
-_error_carga = None
+_lock = threading.Lock()
+_load_error = None
 
 # THE VALHALLA ACTOR IS NOT THREAD-SAFE, and this is a threaded server.
 #
@@ -59,37 +59,37 @@ _error_carga = None
 #
 # It is serialized. A route takes 0.4 s and a phone computes them one at a time, so
 # the queue is not noticed; a dead route server is.
-_cerrojo_actor = threading.Lock()
+_actor_lock = threading.Lock()
 
 
-def teselas():
+def tiles():
 	"""Where the backend leaves the maps. It is passed via the environment so there
 	is only one place that decides the path -- if it were written in both, one day
 	they would stop agreeing."""
-	base = os.environ.get("POCONAV_DATOS")
+	base = os.environ.get("POCONAV_DATA")
 	if not base:
 		base = os.path.expanduser("~/.local/share/poconav")
-	return os.path.join(base, "mapas")
+	return os.path.join(base, "maps")
 
 
-def regiones_con_teselas():
+def regions_with_tiles():
 	"""The downloaded regions that actually have tiles.
 
 	The disk is looked at instead of trusting a state file because the user can
 	delete a region from the settings, or run out of space in the middle of a
 	download, and the directory is the only source that does not lie."""
-	raiz = teselas()
-	if not os.path.isdir(raiz):
+	root = tiles()
+	if not os.path.isdir(root):
 		return []
-	fuera = []
-	for nombre in sorted(os.listdir(raiz)):
-		camino = os.path.join(raiz, nombre, "valhalla", "tiles")
-		if os.path.isdir(camino) and os.listdir(camino):
-			fuera.append(camino)
-	return fuera
+	out = []
+	for name in sorted(os.listdir(root)):
+		path = os.path.join(root, name, "valhalla", "tiles")
+		if os.path.isdir(path) and os.listdir(path):
+			out.append(path)
+	return out
 
 
-def region_con_teselas():
+def region_with_tiles():
 	"""The tile directory that has to be given to Valhalla.
 
 	With ONE downloaded region it is that one and done.
@@ -105,18 +105,18 @@ def region_con_teselas():
 
 	The join is redone only when the set of regions changes. Redoing it on every
 	startup would be tens of thousands of links each time."""
-	dirs = regiones_con_teselas()
+	dirs = regions_with_tiles()
 	if not dirs:
 		return None
 	if len(dirs) == 1:
 		return dirs[0]
 
-	union = os.path.join(teselas(), ".union")
-	sello = os.path.join(union, ".regiones")
-	firma = "\n".join(dirs)
+	union = os.path.join(tiles(), ".union")
+	stamp = os.path.join(union, ".regions")
+	signature = "\n".join(dirs)
 	try:
-		with open(sello) as f:
-			if f.read() == firma:
+		with open(stamp) as f:
+			if f.read() == signature:
 				return union
 	except OSError:
 		pass
@@ -124,16 +124,16 @@ def region_con_teselas():
 	import shutil
 	shutil.rmtree(union, ignore_errors=True)
 	for base in dirs:
-		for raiz, _, ficheros in os.walk(base):
-			rel = os.path.relpath(raiz, base)
-			destino = os.path.join(union, rel) if rel != "." else union
-			os.makedirs(destino, exist_ok=True)
-			for f in ficheros:
-				enlace = os.path.join(destino, f)
-				if not os.path.lexists(enlace):
-					os.symlink(os.path.join(raiz, f), enlace)
-	with open(sello, "w") as f:
-		f.write(firma)
+		for root, _, files in os.walk(base):
+			rel = os.path.relpath(root, base)
+			destination = os.path.join(union, rel) if rel != "." else union
+			os.makedirs(destination, exist_ok=True)
+			for f in files:
+				link = os.path.join(destination, f)
+				if not os.path.lexists(link):
+					os.symlink(os.path.join(root, f), link)
+	with open(stamp, "w") as f:
+		f.write(signature)
 	return union
 
 
@@ -142,23 +142,23 @@ def actor():
 
 	Loading it at startup would delay the application even if nobody was going to
 	request a route. Loading it per request would cost the startup on every one."""
-	global _actor, _error_carga
-	with _cerrojo:
-		if _actor is not None or _error_carga is not None:
+	global _actor, _load_error
+	with _lock:
+		if _actor is not None or _load_error is not None:
 			return _actor
-		camino = region_con_teselas()
-		if camino is None:
-			_error_carga = "no maps downloaded"
+		path = region_with_tiles()
+		if path is None:
+			_load_error = "no maps downloaded"
 			return None
 		try:
 			from valhalla import Actor, get_config
 			# tile_extract empty and not None: Valhalla's helper tries to resolve the
 			# path of the .tar even if you pass it None, and blows up with a
 			# FileNotFoundError that says nothing about what is happening.
-			cfg = get_config(tile_extract="", tile_dir=camino, verbose=False)
+			cfg = get_config(tile_extract="", tile_dir=path, verbose=False)
 			_actor = Actor(cfg)
 		except Exception as e:      # noqa: BLE001 -- any failure here is "no maps"
-			_error_carga = str(e)
+			_load_error = str(e)
 		return _actor
 
 
@@ -169,7 +169,7 @@ def actor():
 #
 # osmscout-server queries it by first normalizing the text with libpostal, which
 # Alpine does not package. But libpostal is only needed for the hard part --
-# understanding that "c/ mayor 3" is "calle mayor numero 3" --, and to search for a
+# understanding that "c/ mayor 3" is "street mayor numero 3" --, and to search for a
 # town or a street by its name it is enough to match words. So it matches.
 #
 # What you CANNOT do is a bare 'LIKE %x%': the table has no index by name, and in
@@ -185,46 +185,46 @@ import re
 import sqlite3
 import unicodedata
 
-_indices = {}
+_indexes = {}
 
 
-def sin_tildes(texto):
+def strip_accents(text):
 	"""Removes accents and lowercases.
 
 	Searching "espana" has to find "Espanya", and searching "ALICANTE" has to find
 	"Alicante". Without this, the search only works if it is typed with the exact same
 	accent that whoever edited the map put in."""
-	plano = unicodedata.normalize("NFD", texto)
-	return "".join(c for c in plano if unicodedata.category(c) != "Mn").lower()
+	flat = unicodedata.normalize("NFD", text)
+	return "".join(c for c in flat if unicodedata.category(c) != "Mn").lower()
 
 
-def bases_de_busqueda():
+def search_databases():
 	"""The geonlp databases of all downloaded regions."""
-	raiz = teselas()
-	if not os.path.isdir(raiz):
+	root = tiles()
+	if not os.path.isdir(root):
 		return []
-	fuera = []
-	for region in sorted(os.listdir(raiz)):
-		base = os.path.join(raiz, region, "geocoder-nlp")
+	out = []
+	for region in sorted(os.listdir(root)):
+		base = os.path.join(root, region, "geocoder-nlp")
 		if not os.path.isdir(base):
 			continue
 		for sub in sorted(os.listdir(base)):
 			db = os.path.join(base, sub, "geonlp-primary.sqlite")
 			if os.path.isfile(db):
-				fuera.append((region, db))
-	return fuera
+				out.append((region, db))
+	return out
 
 
-def indice(region, db):
+def index(region, db):
 	"""Returns the connection to the search index, building it if it is not there.
 
 	It is built once and rebuilt if the original database changes date -- which is
 	what happens when the region is downloaded again."""
-	sello = os.path.getmtime(db)
-	if region in _indices and _indices[region][1] == sello:
-		return _indices[region][0]
+	stamp = os.path.getmtime(db)
+	if region in _indexes and _indexes[region][1] == stamp:
+		return _indexes[region][0]
 
-	camino = os.path.join(os.path.dirname(db), "busqueda-poconav.sqlite")
+	path = os.path.join(os.path.dirname(db), "busqueda-poconav.sqlite")
 
 	# The index was called 'busqueda-quickmaps.sqlite' until the application changed
 	# its name. Without this the new name does not exist, it is rebuilt from scratch
@@ -235,17 +235,32 @@ def indice(region, db):
 	# It is renamed, not copied: the index weighs its share and renaming cannot be
 	# left half done. If the new one is already there, the new one wins and the old
 	# one is deleted.
-	viejo = os.path.join(os.path.dirname(db), "busqueda-quickmaps.sqlite")
-	if os.path.isfile(viejo):
+	old = os.path.join(os.path.dirname(db), "busqueda-quickmaps.sqlite")
+	if os.path.isfile(old):
 		try:
-			if os.path.isfile(camino):
-				os.remove(viejo)
+			if os.path.isfile(path):
+				os.remove(old)
 			else:
-				os.rename(viejo, camino)
+				os.rename(old, path)
 		except OSError:
 			pass   # Not being able to move it only costs rebuilding it; it is not a fault.
 
-	if not (os.path.isfile(camino) and os.path.getmtime(camino) >= sello):
+	# An index built before the column was renamed still has the old name, and it
+	# passes the freshness test above on date alone: every query would then fail
+	# with "no such column". Ask the file what it actually holds.
+	stale = False
+	if os.path.isfile(path):
+		try:
+			probe = sqlite3.connect("file:%s?mode=ro" % path, uri=True)
+			cols = [r[1] for r in probe.execute("PRAGMA table_info(places)")]
+			probe.close()
+			stale = "importance" not in cols
+		except sqlite3.Error:
+			stale = True
+		if stale:
+			os.remove(path)
+
+	if not (os.path.isfile(path) and os.path.getmtime(path) >= stamp):
 		# IT IS BUILT SEPARATELY AND PUT IN ITS PLACE IN ONE PIECE.
 		#
 		# Before it was built directly over the final file, and that leaves an ugly
@@ -257,75 +272,75 @@ def indice(region, db):
 		# Really seen when changing the name: Andorra had a 24 KB index from an
 		# interrupted build. With the atomic rename that cannot happen: while it is
 		# not whole, the good file does not exist.
-		aparte = camino + ".parcial"
-		if os.path.exists(aparte):
-			os.remove(aparte)
-		con = sqlite3.connect(aparte, check_same_thread=False)
-		con.executescript("""
-			CREATE VIRTUAL TABLE sitios USING fts5(
-				plano, nombre UNINDEXED, tipo UNINDEXED,
-				lat UNINDEXED, lon UNINDEXED, rango UNINDEXED,
+		aside = path + ".partial"
+		if os.path.exists(aside):
+			os.remove(aside)
+		conn = sqlite3.connect(aside, check_same_thread=False)
+		conn.executescript("""
+			CREATE VIRTUAL TABLE places USING fts5(
+				flat, name UNINDEXED, kind UNINDEXED,
+				lat UNINDEXED, lon UNINDEXED, importance UNINDEXED,
 				tokenize = 'unicode61');
 		""")
-		origen = sqlite3.connect("file:%s?mode=ro" % db, uri=True)
-		filas = origen.execute("""
+		origin = sqlite3.connect("file:%s?mode=ro" % db, uri=True)
+		rows = origin.execute("""
 			SELECT o.name, t.name, o.latitude, o.longitude, o.search_rank
 			FROM object_primary o LEFT JOIN type t ON t.id = o.type_id
 			WHERE o.name IS NOT NULL AND o.name != ''
 		""")
-		con.executemany(
-			"INSERT INTO sitios(plano, nombre, tipo, lat, lon, rango)"
+		conn.executemany(
+			"INSERT INTO places(flat, name, kind, lat, lon, importance)"
 			" VALUES (?,?,?,?,?,?)",
-			((sin_tildes(n), n, tp or "", la, lo, ra or 0)
-			 for (n, tp, la, lo, ra) in filas))
-		con.commit()
-		origen.close()
-		con.close()
-		os.rename(aparte, camino)
-		os.utime(camino, None)
+			((strip_accents(n), n, tp or "", la, lo, importance_value or 0)
+			 for (n, tp, la, lo, importance_value) in rows))
+		conn.commit()
+		origin.close()
+		conn.close()
+		os.rename(aside, path)
+		os.utime(path, None)
 
-	con = sqlite3.connect(camino, check_same_thread=False)
-	_indices[region] = (con, sello)
-	return con
+	conn = sqlite3.connect(path, check_same_thread=False)
+	_indexes[region] = (conn, stamp)
+	return conn
 
 
-def buscar(consulta, cerca=None, limite=25):
+def search(query, near=None, limit=25):
 	"""Searches all regions and returns the best of each.
 
 	It is ordered by proximity when the user's location is known. Without that, by the
 	database's own 'search_rank', which already puts a town ahead of a bus stop with
 	the same name."""
-	palabras = [p for p in re.split(r"[^\w]+", sin_tildes(consulta)) if p]
-	if not palabras:
+	words = [p for p in re.split(r"[^\w]+", strip_accents(query)) if p]
+	if not words:
 		return []
 
 	# Each word as a prefix and all mandatory: typing "plaza mayor" has to find
 	# "Plaza Mayor" and not everything that carries "plaza".
-	expresion = " AND ".join('"%s"*' % p.replace('"', "") for p in palabras)
+	expression = " AND ".join('"%s"*' % p.replace('"', "") for p in words)
 
 	# MANY more than are going to be returned are requested, because the right order is
-	# decided afterward, in Python. Trimming here to 'limite' was a real bug: searching
+	# decided afterward, in Python. Trimming here to 'limit' was a real bug: searching
 	# "encamp" turned up four things called "something of Encamp" and the town did NOT
 	# appear, because it had fallen outside the SQL cut before anyone looked at which
 	# one resembled it most.
-	amplio = max(limite * 40, 400)
+	broad = max(limit * 40, 400)
 
-	fuera = []
-	for region, db in bases_de_busqueda():
+	out = []
+	for region, db in search_databases():
 		try:
-			con = indice(region, db)
+			conn = index(region, db)
 			# ORDER BY rank, which in FTS5 is bm25, and NOT by the database's
 			# 'search_rank'. With search_rank the cut was decided by arbitrary ties:
 			# searching "murcia" in Spain turned up a supercharger and a nightclub, and
 			# the city did NOT appear -- it fell outside the first N that SQL returned.
 			# bm25 rewards the term being a good part of the text, so "Murcia" beats
 			# "Murcia Supercharger".
-			for n, tp, la, lo, ra in con.execute(
-					"SELECT nombre, tipo, lat, lon, rango FROM sitios"
-					" WHERE sitios MATCH ? ORDER BY rank LIMIT ?",
-					(expresion, amplio)):
-				fuera.append({"nombre": n, "tipo": tp, "lat": la, "lon": lo,
-					"rango": ra, "region": region})
+			for n, tp, la, lo, importance_value in conn.execute(
+					"SELECT name, kind, lat, lon, importance FROM places"
+					" WHERE places MATCH ? ORDER BY rank LIMIT ?",
+					(expression, broad)):
+				out.append({"name": n, "kind": tp, "lat": la, "lon": lo,
+					"importance": importance_value, "region": region})
 		except Exception:      # noqa: BLE001 -- a broken region does not take down the rest
 			continue
 
@@ -333,7 +348,7 @@ def buscar(consulta, cerca=None, limite=25):
 	# Andorra, the town and a bridge called "Pont Tibeta d'Encamp" are both worth 1000,
 	# and the bridge came out first. What decides is how much the WHOLE name resembles
 	# what was typed.
-	texto = " ".join(palabras)
+	text = " ".join(words)
 
 	# With the name equally similar, WHAT IT IS decides. Searching "encamp" the town
 	# and a hotel called "ENCAMP" tied, and to set a destination the town is almost
@@ -344,42 +359,42 @@ def buscar(consulta, cerca=None, limite=25):
 	# 'place_locality' are named spots -- there are 560,000 --. That is why the
 	# municipality goes first: searching "cartagena" turned up three homonymous
 	# hamlets of Albacete, Avila and Navarra, and the city fourth.
-	def peso_tipo(tipo):
-		if tipo.startswith("boundary_admin"):
+	def kind_weight(kind):
+		if kind.startswith("boundary_admin"):
 			return 0            # municipalities: the real cities and towns
-		if tipo.startswith("place_"):
+		if kind.startswith("place_"):
 			return 1            # spots, neighborhoods, named houses
-		if tipo.startswith("highway_"):
+		if kind.startswith("highway_"):
 			return 2            # streets and roads
 		return 3                # everything else: shops, hotels, monuments
 
-	# THE DATABASE'S 'rango' RUNS OPPOSITE TO WHAT IT SEEMS, and I was using it
+	# THE DATABASE'S 'importance' RUNS OPPOSITE TO WHAT IT SEEMS, and I was using it
 	# backwards. It is a rank, not a score: the LOWER it is, the more important. Measured
 	# in this data, the municipalities:
 	#
 	#     Madrid 242   Valencia 331   Murcia 410   Cartagena 443
 	#
 	# which is exactly the order by size. And right at the top, with 1000, a heliport
-	# and several bus stops. The code ordered by '-rango', so it put the LEAST
+	# and several bus stops. The code ordered by '-importance', so it put the LEAST
 	# important first.
-	def parecido(r):
-		p = sin_tildes(r["nombre"])
-		if p == texto:
+	def similarity(r):
+		p = strip_accents(r["name"])
+		if p == text:
 			base = 0            # it is exactly that
-		elif p.startswith(texto):
+		elif p.startswith(text):
 			base = 1            # it starts with that
 		else:
 			base = 2            # it carries it inside
-		return (base, peso_tipo(r["tipo"]), r["rango"] or 9999)
+		return (base, kind_weight(r["kind"]), r["importance"] or 9999)
 
-	if cerca:
+	if near:
 		# Squared distance and no square root: it only serves for ordering, and the
 		# longitude is corrected because a degree measures less as you go up.
 		import math
-		cl = math.cos(math.radians(cerca[0]))
-		def cerca_de(r):
-			return ((r["lat"] - cerca[0]) ** 2
-				+ ((r["lon"] - cerca[1]) * cl) ** 2)
+		cl = math.cos(math.radians(near[0]))
+		def near_to(r):
+			return ((r["lat"] - near[0]) ** 2
+				+ ((r["lon"] - near[1]) * cl) ** 2)
 		# The order is: how much the name resembles, what it is, how much it matters,
 		# and ONLY THEN how close it falls.
 		#
@@ -390,9 +405,9 @@ def buscar(consulta, cerca=None, limite=25):
 		#
 		# And it still serves for the other thing: searching "farmacia" they are all
 		# the same type and of similar importance, so the distance decides.
-		fuera.sort(key=lambda r: (parecido(r), cerca_de(r)))
+		out.sort(key=lambda r: (similarity(r), near_to(r)))
 	else:
-		fuera.sort(key=lambda r: parecido(r))
+		out.sort(key=lambda r: similarity(r))
 	# NO DUPLICATES. The same city shows up twice when the database has the
 	# municipality and the county with the same name and the same center -- "Murcia"
 	# appeared twice in a row, identical, and the second only wastes space in a list
@@ -400,15 +415,15 @@ def buscar(consulta, cerca=None, limite=25):
 	#
 	# The same name within ~100 m is considered a duplicate. The first is kept, which
 	# by how it is ordered is already the most important.
-	vistos = set()
-	unicos = []
-	for r in fuera:
-		clave = (sin_tildes(r["nombre"]), round(r["lat"], 3), round(r["lon"], 3))
-		if clave in vistos:
+	seen = set()
+	unique = []
+	for r in out:
+		key = (strip_accents(r["name"]), round(r["lat"], 3), round(r["lon"], 3))
+		if key in seen:
 			continue
-		vistos.add(clave)
-		unicos.append(r)
-	return unicos[:limite]
+		seen.add(key)
+		unique.append(r)
+	return unique[:limit]
 
 
 # --- the DRAWING tiles of the map ------------------------------------------
@@ -425,42 +440,42 @@ def buscar(consulta, cerca=None, limite=25):
 # listening, it already knows where the maps live, and one more server would be two
 # things to start and two that can be missing.
 _mbtiles = {}
-_cerrojo_mbtiles = threading.Lock()
+_mbtiles_lock = threading.Lock()
 
 # How many drawing pieces have been requested. It is not a statistic: it is the only
 # way to tell "the map is drawn from disk" from "the connector is set and asks for
 # nothing", which from outside look the same -- in both cases the log is silent. It is
 # queried via /status.
-_contados = {"estilo": 0, "tesela": 0, "glifo": 0, "sprite": 0}
+_served = {"style": 0, "tile": 0, "glyph": 0, "sprite": 0}
 
 
-def mapas_dibujables():
+def drawable_maps():
 	"""The .mbtiles of the downloaded regions, from newest to oldest.
 
 	It is ordered by date because on overlaps -- Andorra falls inside Spain's box --
 	the one downloaded later wins, which is the one the user has requested most
 	recently."""
-	raiz = teselas()
-	if not os.path.isdir(raiz):
+	root = tiles()
+	if not os.path.isdir(root):
 		return []
-	fuera = []
-	for region in sorted(os.listdir(raiz)):
-		base = os.path.join(raiz, region, "mapboxgl")
+	out = []
+	for region in sorted(os.listdir(root)):
+		base = os.path.join(root, region, "mapboxgl")
 		if not os.path.isdir(base):
 			continue
-		for nombre in sorted(os.listdir(base)):
+		for name in sorted(os.listdir(base)):
 			# '.sqlite' AND '.mbtiles'. The format is the same -- a sqlite database
 			# with one tile per row -- and the name depends on who made it: the ones
 			# from the catalog arrive as 'tiles-section-7-63-49.sqlite'. Looking only
 			# at '.mbtiles' the directory came out empty with 112 MB inside, and the
 			# symptom was that there was no map and that was that.
-			if nombre.endswith((".mbtiles", ".sqlite")):
-				camino = os.path.join(base, nombre)
-				fuera.append((os.path.getmtime(camino), camino))
-	return [c for _, c in sorted(fuera, reverse=True)]
+			if name.endswith((".mbtiles", ".sqlite")):
+				path = os.path.join(base, name)
+				out.append((os.path.getmtime(path), path))
+	return [c for _, c in sorted(out, reverse=True)]
 
 
-def zooms_dibujables():
+def drawable_zooms():
 	"""The MINIMUM and MAXIMUM zoom that actually exists on disk.
 
 	And it is looked at inside the tiles, not in their metadata, because the metadata
@@ -475,51 +490,51 @@ def zooms_dibujables():
 	The symptom was baffling: while driving the map showed and in the planner it came
 	out blank. The difference is the zoom -- up close there are tiles, far away there
 	are not."""
-	minimo, maximo = None, None
-	for camino in mapas_dibujables():
+	minimum, maximum = None, None
+	for path in drawable_maps():
 		try:
-			fila = _conexion_mbtiles(camino).execute(
+			row = _mbtiles_conn(path).execute(
 				"SELECT min(zoom_level), max(zoom_level) FROM tiles").fetchone()
 		except sqlite3.Error:
 			continue
-		if not fila or fila[0] is None:
+		if not row or row[0] is None:
 			continue
-		minimo = fila[0] if minimo is None else min(minimo, fila[0])
-		maximo = fila[1] if maximo is None else max(maximo, fila[1])
-	return minimo, maximo
+		minimum = row[0] if minimum is None else min(minimum, row[0])
+		maximum = row[1] if maximum is None else max(maximum, row[1])
+	return minimum, maximum
 
 
-def cuadros_dibujables():
+def drawable_boxes():
 	"""The zoom-7 boxes that are on disk, by their name: "7-63-49".
 
 	It comes from the file name, which is how the catalog publishes them
 	-- 'tiles-section-7-63-49.sqlite' --, and not from looking inside: opening each
 	database to ask it its extent would cost more and would say the same."""
-	fuera = []
-	for camino in mapas_dibujables():
-		nombre = os.path.basename(camino)
-		hallado = re.search(r"(\d+-\d+-\d+)", nombre)
+	out = []
+	for path in drawable_maps():
+		name = os.path.basename(path)
+		hallado = re.search(r"(\d+-\d+-\d+)", name)
 		if hallado:
-			fuera.append(hallado.group(1))
-	return sorted(set(fuera))
+			out.append(hallado.group(1))
+	return sorted(set(out))
 
 
-def _conexion_mbtiles(camino):
+def _mbtiles_conn(path):
 	"""One connection per file and per thread.
 
 	sqlite3 refuses to use a connection from another thread, and the server serves
 	each request in its own. They are cached because opening the file on each tile
 	-- and there are hundreds per screen -- shows."""
-	clave = (camino, threading.get_ident())
-	with _cerrojo_mbtiles:
-		con = _mbtiles.get(clave)
-		if con is None:
-			con = sqlite3.connect("file:%s?mode=ro" % camino, uri=True)
-			_mbtiles[clave] = con
-		return con
+	key = (path, threading.get_ident())
+	with _mbtiles_lock:
+		conn = _mbtiles.get(key)
+		if conn is None:
+			conn = sqlite3.connect("file:%s?mode=ro" % path, uri=True)
+			_mbtiles[key] = conn
+		return conn
 
 
-def tesela(z, x, y):
+def tile(z, x, y):
 	"""The vector tile of those coordinates, or None if it is in none of them.
 
 	WATCH THE Y. The scheme of an .mbtiles is TMS, which counts the rows from the
@@ -527,18 +542,18 @@ def tesela(z, x, y):
 	the top. Without flipping it real tiles come out, but from the wrong place: the map
 	is drawn mirrored horizontally and also shifted, which is worse than drawing
 	nothing because it looks like it works."""
-	fila = (1 << z) - 1 - y
-	for camino in mapas_dibujables():
+	row = (1 << z) - 1 - y
+	for path in drawable_maps():
 		try:
-			cur = _conexion_mbtiles(camino).execute(
+			cur = _mbtiles_conn(path).execute(
 				"SELECT tile_data FROM tiles"
 				" WHERE zoom_level=? AND tile_column=? AND tile_row=?",
-				(z, x, fila))
-			hay = cur.fetchone()
+				(z, x, row))
+			exists = cur.fetchone()
 		except sqlite3.Error:
 			continue
-		if hay:
-			return hay[0]
+		if exists:
+			return exists[0]
 	return None
 
 
@@ -556,8 +571,8 @@ def tesela(z, x, y):
 #
 # They ship a "-car" variant, meant for driving: less pedestrian detail and more
 # contrast on the big roads.
-ESTILOS = "/usr/share/osmscout-server/styles/mapboxgl"
-ESTILO_POR_TEMA = {
+STYLES = "/usr/share/osmscout-server/styles/mapboxgl"
+STYLE_BY_THEME = {
 	"light": "osmbright-car.json",
 	# 'mc' is the other set it ships, with a dark background. The name says nothing but
 	# it is the one that serves at night.
@@ -565,7 +580,7 @@ ESTILO_POR_TEMA = {
 }
 
 
-def glifos():
+def glyphs():
 	"""The database with the fonts, or None if it has not been downloaded.
 
 	Without them the map is drawn with its streets and its rivers and WITHOUT A SINGLE
@@ -576,32 +591,32 @@ def glifos():
 	looking for 'glyphs/<font>/<range>.pbf' as loose files -- because it was written
 	before downloading them even once. What there really is is 'glyphs/glyphs.sqlite'
 	with a table fonts(stack, range, pbf)."""
-	raiz = teselas()
-	for region in sorted(os.listdir(raiz)) if os.path.isdir(raiz) else []:
-		camino = os.path.join(raiz, region, "mapboxgl", "glyphs", "glyphs.sqlite")
-		if os.path.isfile(camino):
-			return camino
+	root = tiles()
+	for region in sorted(os.listdir(root)) if os.path.isdir(root) else []:
+		path = os.path.join(root, region, "mapboxgl", "glyphs", "glyphs.sqlite")
+		if os.path.isfile(path):
+			return path
 	return None
 
 
-def glifo(pila, rango):
+def glyph(stack, importance):
 	"""The chunk of font for that stack and that range of characters.
 
 	MapLibre asks for the WHOLE stack separated by commas -- "Open Sans Bold,Arial
 	Unicode MS Bold" -- which is its preference list. The database keeps one row per
 	single font, so the stack is tried as is and then one by one, which is exactly what
 	the list means: the first one that exists."""
-	base = glifos()
+	base = glyphs()
 	if base is None:
 		return None
 	try:
-		con = _conexion_mbtiles(base)
-		for nombre in [pila] + [t.strip() for t in pila.split(",")]:
-			fila = con.execute(
+		conn = _mbtiles_conn(base)
+		for name in [stack] + [t.strip() for t in stack.split(",")]:
+			row = conn.execute(
 				"SELECT pbf FROM fonts WHERE stack=? AND range=?",
-				(nombre, rango)).fetchone()
-			if fila:
-				return fila[0]
+				(name, importance)).fetchone()
+			if row:
+				return row[0]
 	except sqlite3.Error:
 		return None
 	return None
@@ -612,24 +627,24 @@ def glifo(pila, rango):
 # it does not like". They are 107 layers of foreign JSON; starting to bisect them
 # without knowing whether the connector draws anything would be losing the day.
 #
-# It is requested with ?tema=minimo. It draws the water and the roads and nothing else,
+# It is requested with ?theme=minimum. It draws the water and the roads and nothing else,
 # with no labels -- so it needs neither fonts nor icons, which are precisely the two
 # pieces that blocked startup once.
-def estilo_minimo():
-	yo = "http://127.0.0.1:%d" % PUERTO
+def minimal_style():
+	me = "http://127.0.0.1:%d" % PORT
 	return {
 		"version": 8,
 		"name": "PocoNav minimal",
 		"sources": {
 			"p": {
 				"type": "vector",
-				"tiles": ["%s/mapa/{z}/{x}/{y}.pbf" % yo],
+				"tiles": ["%s/map/{z}/{x}/{y}.pbf" % me],
 				"minzoom": 0,
 				"maxzoom": 14,
 			}
 		},
 		"layers": [
-			{"id": "fondo", "type": "background",
+			{"id": "surface", "type": "background",
 			 "paint": {"background-color": "#f2efe9"}},
 			{"id": "agua", "type": "fill", "source": "p",
 			 "source-layer": "water", "paint": {"fill-color": "#a0c8f0"}},
@@ -640,95 +655,95 @@ def estilo_minimo():
 	}
 
 
-def estilo(tema):
+def style(theme):
 	"""The style, with its URLs pointing at this server.
 
 	They are rewritten over the already-read JSON and not by blindly changing text: the
 	file ships the server name unresolved -- 'HOSTNAMEPORT', which osmscout-server
 	substitutes with its own when serving it -- and search-and-replacing that string
 	would work right up to the day it appeared inside a label."""
-	if tema == "minimo":
-		return estilo_minimo()
-	nombre = ESTILO_POR_TEMA.get(tema, ESTILO_POR_TEMA["light"])
-	camino = os.path.join(ESTILOS, "styles", nombre)
-	if not os.path.isfile(camino):
+	if theme == "minimum":
+		return minimal_style()
+	name = STYLE_BY_THEME.get(theme, STYLE_BY_THEME["light"])
+	path = os.path.join(STYLES, "styles", name)
+	if not os.path.isfile(path):
 		return None
-	with open(camino, "r", encoding="utf-8") as f:
+	with open(path, "r", encoding="utf-8") as f:
 		d = json.load(f)
 
-	yo = "http://127.0.0.1:%d" % PUERTO
-	zmin, zmax = zooms_dibujables()
-	for fuente in (d.get("sources") or {}).values():
-		if fuente.get("type") == "vector":
-			fuente["tiles"] = ["%s/mapa/{z}/{x}/{y}.pbf" % yo]
-			# The zoom that EXISTS, not the one the file says. See zooms_dibujables().
+	me = "http://127.0.0.1:%d" % PORT
+	zmin, zmax = drawable_zooms()
+	for source in (d.get("sources") or {}).values():
+		if source.get("type") == "vector":
+			source["tiles"] = ["%s/map/{z}/{x}/{y}.pbf" % me]
+			# The zoom that EXISTS, not the one the file says. See drawable_zooms().
 			if zmin is not None:
-				fuente["minzoom"] = zmin
-				fuente["maxzoom"] = zmax
-	d["glyphs"] = "%s/mapa/glifos/{fontstack}/{range}.pbf" % yo
-	d["sprite"] = "%s/mapa/sprite" % yo
+				source["minzoom"] = zmin
+				source["maxzoom"] = zmax
+	d["glyphs"] = "%s/map/glyphs/{fontstack}/{range}.pbf" % me
+	d["sprite"] = "%s/map/sprite" % me
 	return d
 
 
-class Manejador(BaseHTTPRequestHandler):
+class Handler(BaseHTTPRequestHandler):
 	# The access log is OFF by default -- one line per tile is hundreds per screen --
-	# but it can be turned on with POCONAV_REGISTRO=1.
+	# but it can be turned on with POCONAV_LOG=1.
 	#
 	# Being able to turn it on is needed: when the map does not draw, knowing what the
 	# connector asks for and what it is answered is the difference between fixing it and
 	# guessing. Without it I spent time staring at "zero tiles served" without knowing
 	# whether it was not asking for them or it was answering them wrong.
-	def log_message(self, formato, *args):
-		if os.environ.get("POCONAV_REGISTRO"):
-			sys.stderr.write("  %s\n" % (formato % args))
+	def log_message(self, fmt, *args):
+		if os.environ.get("POCONAV_LOG"):
+			sys.stderr.write("  %s\n" % (fmt % args))
 
-	def _responder(self, codigo, cuerpo):
-		datos = json.dumps(cuerpo).encode("utf-8")
-		self.send_response(codigo)
+	def _respond(self, code, body):
+		payload = json.dumps(body).encode("utf-8")
+		self.send_response(code)
 		self.send_header("Content-Type", "application/json")
-		self.send_header("Content-Length", str(len(datos)))
+		self.send_header("Content-Length", str(len(payload)))
 		self.end_headers()
-		self.wfile.write(datos)
+		self.wfile.write(payload)
 
-	def _crudo_json(self, salida):
+	def _raw_json(self, output):
 		"""Returns exactly what Valhalla answers, without serializing it again.
 
 		Valhalla already delivers finished JSON. Passing it through json.loads and
 		json.dumps just to get back to the same thing costs time in a response that can
 		be hundreds of kilobytes."""
-		datos = salida.encode("utf-8") if isinstance(salida, str) else salida
+		payload = output.encode("utf-8") if isinstance(output, str) else output
 		self.send_response(200)
 		self.send_header("Content-Type", "application/json")
-		self.send_header("Content-Length", str(len(datos)))
+		self.send_header("Content-Length", str(len(payload)))
 		self.end_headers()
-		self.wfile.write(datos)
+		self.wfile.write(payload)
 
-	def _enrutar(self, camino, consulta):
-		"""Valhalla's three operations. 'consulta' is its JSON, as text."""
+	def _route(self, path, query):
+		"""Valhalla's three operations. 'query' is its JSON, as text."""
 		a = actor()
 		if a is None:
 			# 503 and not 500: the application reads it as "not possible here, try
 			# over the network", which is exactly what is happening.
-			self._responder(503, {"error": _error_carga or "no maps"})
+			self._respond(503, {"error": _load_error or "no maps"})
 			return
 		try:
-			with _cerrojo_actor:
-				if camino.startswith("/route"):
-					salida = a.route(consulta)
-				elif camino.startswith("/trace_attributes"):
-					salida = a.trace_attributes(consulta)
-				elif camino.startswith("/locate"):
-					salida = a.locate(consulta)
+			with _actor_lock:
+				if path.startswith("/route"):
+					output = a.route(query)
+				elif path.startswith("/trace_attributes"):
+					output = a.trace_attributes(query)
+				elif path.startswith("/locate"):
+					output = a.locate(query)
 				else:
-					self._responder(404, {"error": "does not exist"})
+					self._respond(404, {"error": "does not exist"})
 					return
 		except Exception as e:      # noqa: BLE001
 			# That there is no route between two points is NOT a server failure: it
 			# happens when the destination falls outside the downloaded region, and the
 			# application has to be able to tell it apart to retry over the network.
-			self._responder(400, {"error": str(e)})
+			self._respond(400, {"error": str(e)})
 			return
-		self._crudo_json(salida)
+		self._raw_json(output)
 
 	# GET AND POST, both, because that is how Valhalla's real API is.
 	#
@@ -743,23 +758,23 @@ class Manejador(BaseHTTPRequestHandler):
 	# the server by hand instead of through where the application goes.
 	def do_GET(self):
 		from urllib.parse import parse_qs, urlparse
-		partes = urlparse(self.path)
+		parsed = urlparse(self.path)
 
 		# To know whether it can route at home BEFORE asking for anything, and choose
 		# between local and network without waiting for a failure.
-		if partes.path.startswith("/status"):
-			hay = actor() is not None
-			dibujables = mapas_dibujables()
-			self._responder(200, {
-				"listo": hay,
-				"teselas": region_con_teselas(),
-				"motivo": None if hay else _error_carga,
+		if parsed.path.startswith("/status"):
+			exists = actor() is not None
+			drawables = drawable_maps()
+			self._respond(200, {
+				"ready": exists,
+				"tiles": region_with_tiles(),
+				"reason": None if exists else _load_error,
 				# Knowing how to ROUTE and knowing how to DRAW are different things and
 				# they are downloaded separately: you can have a region to go
 				# somewhere with and not be able to paint it, which is exactly how this
 				# was until now. The application picks the map connector with this.
-				"dibujable": bool(dibujables),
-				"mapas_dibujo": len(dibujables),
+				"drawable": bool(drawables),
+				"drawing_maps": len(drawables),
 				# WHICH boxes there are, not just how many.
 				#
 				# Having a drawing map and having a map OF HERE are different things,
@@ -767,89 +782,89 @@ class Manejador(BaseHTTPRequestHandler):
 				# explanation. It really happened -- with the Murcia box downloaded and
 				# the map open in Valencia, the 110 requested tiles answered 204 and
 				# there was nothing to paint nor anything to read.
-				"cuadros": cuadros_dibujables(),
-				"servidas": dict(_contados),
+				"boxes": drawable_boxes(),
+				"served": dict(_served),
 			})
 			return
 
-		# /mapa/... -- what is needed to DRAW: tiles, style, fonts and icons. It is
-		# passed the whole 'self.path' and not 'partes.path': the style is requested
-		# with "?tema=dark" and keeping only the path lost the theme and always
+		# /map/... -- what is needed to DRAW: tiles, style, fonts and icons. It is
+		# passed the whole 'self.path' and not 'parsed.path': the style is requested
+		# with "?theme=dark" and keeping only the path lost the theme and always
 		# returned the light one.
-		if partes.path.startswith("/mapa/"):
-			self._servir_tesela(self.path)
+		if parsed.path.startswith("/map/"):
+			self._serve_tile(self.path)
 			return
 
-		consulta = parse_qs(partes.query).get("json", [""])[0]
-		if not consulta:
-			self._responder(400, {"error": "missing json parameter"})
+		query = parse_qs(parsed.query).get("json", [""])[0]
+		if not query:
+			self._respond(400, {"error": "missing json parameter"})
 			return
-		self._enrutar(partes.path, consulta)
+		self._route(parsed.path, query)
 
-	def _servir_fichero(self, camino, tipo, comprimido=False):
+	def _serve_file(self, path, kind, compressed=False):
 		try:
-			with open(camino, "rb") as f:
-				datos = f.read()
+			with open(path, "rb") as f:
+				payload = f.read()
 		except OSError:
 			# 404 and not 500: that a font range or a sprite is missing is normal --
 			# not all languages use all characters -- and MapLibre knows how to carry
 			# on without them.
-			self._responder(404, {"error": "not there"})
+			self._respond(404, {"error": "not there"})
 			return
 		self.send_response(200)
-		self.send_header("Content-Type", tipo)
-		if comprimido or datos[:2] == b"\x1f\x8b":
+		self.send_header("Content-Type", kind)
+		if compressed or payload[:2] == b"\x1f\x8b":
 			self.send_header("Content-Encoding", "gzip")
-		self.send_header("Content-Length", str(len(datos)))
+		self.send_header("Content-Length", str(len(payload)))
 		self.send_header("Cache-Control", "max-age=86400")
 		self.end_headers()
-		self.wfile.write(datos)
+		self.wfile.write(payload)
 
-	def _servir_tesela(self, camino):
+	def _serve_tile(self, path):
 		from urllib.parse import urlparse
-		resto = urlparse(camino).path[len("/mapa/"):]
+		rest = urlparse(path).path[len("/map/"):]
 
-		# The style, the fonts and the icons, which go through the same /mapa/ because
+		# The style, the fonts and the icons, which go through the same /map/ because
 		# they are the three things MapLibre asks for to draw and splitting them into
 		# three prefixes would only give three places to get it wrong.
-		if resto.startswith("estilo"):
+		if rest.startswith("style"):
 			from urllib.parse import parse_qs, urlparse
-			tema = parse_qs(urlparse(camino).query).get("tema", ["light"])[0]
-			_contados["estilo"] += 1
-			d = estilo(tema)
+			theme = parse_qs(urlparse(path).query).get("theme", ["light"])[0]
+			_served["style"] += 1
+			d = style(theme)
 			if d is None:
-				self._responder(404, {"error": "no styles installed"})
+				self._respond(404, {"error": "no styles installed"})
 				return
-			self._responder(200, d)
+			self._respond(200, d)
 			return
 
-		if resto.startswith("glifos/"):
-			_contados["glifo"] += 1
+		if rest.startswith("glyphs/"):
+			_served["glyph"] += 1
 			from urllib.parse import unquote
-			trozos = resto[len("glifos/"):].split("/")
-			if len(trozos) != 2:
-				self._responder(404, {"error": "does not exist"})
+			parts = rest[len("glyphs/"):].split("/")
+			if len(parts) != 2:
+				self._respond(404, {"error": "does not exist"})
 				return
 			# "0-255.pbf" -> "0-255", which is how the range is written in the database.
-			datos = glifo(unquote(trozos[0]), trozos[1].split(".")[0])
-			if datos is None:
-				self._responder(404, {"error": "no fonts"})
+			payload = glyph(unquote(parts[0]), parts[1].split(".")[0])
+			if payload is None:
+				self._respond(404, {"error": "no fonts"})
 				return
 			self.send_response(200)
 			self.send_header("Content-Type", "application/x-protobuf")
-			self.send_header("Content-Length", str(len(datos)))
+			self.send_header("Content-Length", str(len(payload)))
 			self.send_header("Cache-Control", "max-age=86400")
 			self.end_headers()
-			self.wfile.write(datos)
+			self.wfile.write(payload)
 			return
 
-		if resto.startswith("sprite"):
+		if rest.startswith("sprite"):
 			# MapLibre asks for 'sprite.json', 'sprite.png' and their @2x variants.
 			# What arrives here is whatever comes after "sprite".
-			_contados["sprite"] += 1
-			cola = resto[len("sprite"):] or ".json"
-			if ".." in cola or "/" in cola:
-				self._responder(404, {"error": "does not exist"})
+			_served["sprite"] += 1
+			tail = rest[len("sprite"):] or ".json"
+			if ".." in tail or "/" in tail:
+				self._respond(404, {"error": "does not exist"})
 				return
 
 			# '@2x' IF IT IS NOT THERE, THE NORMAL ONE. And this is not a convenience
@@ -859,8 +874,8 @@ class Manejador(BaseHTTPRequestHandler):
 			# resolution. osmscout-server only ships 'sprite.json' and 'sprite.png', so
 			# the server answered 404 --
 			#
-			#   ERROR: The resource `.../mapa/sprite@2x.json` not found
-			#   ERROR: The resource `.../mapa/sprite@2x.png` not found
+			#   ERROR: The resource `.../map/sprite@2x.json` not found
+			#   ERROR: The resource `.../map/sprite@2x.png` not found
 			#
 			# -- and MapLibre does NOT carry on without its icons: it asked for the
 			# style, stayed there and never got to ask for a single tile. From outside
@@ -869,30 +884,30 @@ class Manejador(BaseHTTPRequestHandler):
 			#
 			# The icons at normal size on a dense screen come out a bit less sharp. That
 			# is all that is lost, and it is much better than a blank map.
-			camino = os.path.join(ESTILOS, "sprites", "sprite" + cola)
-			if not os.path.isfile(camino) and "@2x" in cola:
-				camino = os.path.join(ESTILOS, "sprites",
-					"sprite" + cola.replace("@2x", ""))
-			self._servir_fichero(
-				camino,
-				"image/png" if cola.endswith(".png") else "application/json")
+			path = os.path.join(STYLES, "sprites", "sprite" + tail)
+			if not os.path.isfile(path) and "@2x" in tail:
+				path = os.path.join(STYLES, "sprites",
+					"sprite" + tail.replace("@2x", ""))
+			self._serve_file(
+				path,
+				"image/png" if tail.endswith(".png") else "application/json")
 			return
 
-		trozos = resto.split("/")
-		if len(trozos) != 3:
-			self._responder(404, {"error": "does not exist"})
+		parts = rest.split("/")
+		if len(parts) != 3:
+			self._respond(404, {"error": "does not exist"})
 			return
 		try:
-			z = int(trozos[0])
-			x = int(trozos[1])
-			y = int(trozos[2].split(".")[0])
+			z = int(parts[0])
+			x = int(parts[1])
+			y = int(parts[2].split(".")[0])
 		except ValueError:
-			self._responder(400, {"error": "unreadable coordinates"})
+			self._respond(400, {"error": "unreadable coordinates"})
 			return
 
-		_contados["tesela"] += 1
-		datos = tesela(z, x, y)
-		if datos is None:
+		_served["tile"] += 1
+		payload = tile(z, x, y)
+		if payload is None:
 			# 204 and not 404, on purpose. The sea, the gaps between regions and abroad
 			# are tiles that DO NOT EXIST and that is normal: in a vector map "there is
 			# nothing to paint here" is a valid response. With a 404 MapLibre treats it
@@ -907,49 +922,49 @@ class Manejador(BaseHTTPRequestHandler):
 		# The tiles go compressed INSIDE the .mbtiles and are served as is:
 		# decompressing them here so the client can compress them again would be work
 		# for nothing on a phone.
-		if datos[:2] == b"\x1f\x8b":
+		if payload[:2] == b"\x1f\x8b":
 			self.send_header("Content-Encoding", "gzip")
-		self.send_header("Content-Length", str(len(datos)))
+		self.send_header("Content-Length", str(len(payload)))
 		# They are local files that only change on downloading the region again.
 		self.send_header("Cache-Control", "max-age=86400")
 		self.end_headers()
-		self.wfile.write(datos)
+		self.wfile.write(payload)
 
 	def do_POST(self):
-		largo = int(self.headers.get("Content-Length") or 0)
-		crudo = self.rfile.read(largo).decode("utf-8") if largo else "{}"
+		size = int(self.headers.get("Content-Length") or 0)
+		raw = self.rfile.read(size).decode("utf-8") if size else "{}"
 
 		# The search goes BEFORE asking for the router: they are different databases,
 		# and not having tiles does not stop searching for a place on the map.
 		if self.path.startswith("/search"):
 			try:
-				pet = json.loads(crudo)
+				req = json.loads(raw)
 			except ValueError:
-				self._responder(400, {"error": "unreadable request"})
+				self._respond(400, {"error": "unreadable request"})
 				return
-			cerca = pet.get("cerca")
-			punto = (cerca["lat"], cerca["lon"]) if cerca else None
+			near = req.get("near")
+			point = (near["lat"], near["lon"]) if near else None
 			try:
-				res = buscar(pet.get("q", ""), punto, int(pet.get("limite", 25)))
+				res = search(req.get("q", ""), point, int(req.get("limit", 25)))
 			except Exception as e:      # noqa: BLE001
-				self._responder(503, {"error": str(e)})
+				self._respond(503, {"error": str(e)})
 				return
-			self._responder(200, {"resultados": res})
+			self._respond(200, {"results": res})
 			return
 
-		self._enrutar(self.path, crudo)
+		self._route(self.path, raw)
 
 
-def preparar_indices():
+def prepare_indexes():
 	"""Builds the missing search indexes, in the background.
 
 	The first search over Spain took 55 SECONDS because it built the index at that
 	moment. Measured. Doing it at startup costs the same, but nobody is waiting: the
 	application takes a while to have a destination to search for, and by then it is
 	already done."""
-	for region, db in bases_de_busqueda():
+	for region, db in search_databases():
 		try:
-			indice(region, db)
+			index(region, db)
 		except Exception as e:      # noqa: BLE001 -- a broken region does not take down the rest
 			sys.stderr.write("index of %s: %s\n" % (region, e))
 
@@ -957,16 +972,16 @@ def preparar_indices():
 def main():
 	# In the background so as not to delay startup: whoever wants a route can request
 	# it in the meantime.
-	threading.Thread(target=preparar_indices, daemon=True).start()
+	threading.Thread(target=prepare_indexes, daemon=True).start()
 
 	# 127.0.0.1 and NOT 'localhost': if you bind to the name, whoever resolves to ::1
 	# first gets a "connection refused" that explains nothing. It cost a whole night of
 	# wrong diagnosis with the previous server.
-	servidor = ThreadingHTTPServer(("127.0.0.1", PUERTO), Manejador)
-	sys.stderr.write("poconav-routes listening on 127.0.0.1:%d\n" % PUERTO)
+	server = ThreadingHTTPServer(("127.0.0.1", PORT), Handler)
+	sys.stderr.write("poconav-routes listening on 127.0.0.1:%d\n" % PORT)
 	sys.stderr.flush()
 	try:
-		servidor.serve_forever()
+		server.serve_forever()
 	except KeyboardInterrupt:
 		pass
 

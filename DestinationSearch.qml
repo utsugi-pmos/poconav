@@ -19,119 +19,119 @@ import QtPositioning
 import org.kde.kirigami as Kirigami
 
 Item {
-	id: buscador
+	id: finder
 
 	// Bias results towards where you are, otherwise "farmacia" is a lottery
 	// over the whole planet.
-	property var cerca: null
-	property int alto: Kirigami.Units.gridUnit * 3.5
+	property var near: null
+	property int tall: Kirigami.Units.gridUnit * 3.5
 
 	// Owned by the caller and handed back through the signals, so this panel
 	// never has to know where preferences live.
-	property string favoritosJson: "[]"
-	property bool evitarPeajes: false
-	property bool evitarAutopistas: false
-	property bool evitarFerris: false
-	property bool evitarTierra: false
+	property string favoritesJson: "[]"
+	property bool avoidTolls: false
+	property bool avoidMotorways: false
+	property bool avoidFerries: false
+	property bool avoidUnpaved: false
 
-	signal elegido(var coordenada, string nombre)
-	signal favoritosCambiados(string json)
-	signal alternarPeajes()
-	signal alternarAutopistas()
-	signal alternarFerris()
-	signal alternarTierra()
+	signal chosen(var coordinate, string name)
+	signal favoritesChanged(string json)
+	signal toggleTolls()
+	signal toggleMotorways()
+	signal toggleFerries()
+	signal toggleUnpaved()
 
 	readonly property var p: Theme
 
 	// If there are downloaded maps, the search runs on the phone. Whoever creates us decides it:
 	// it is the same poll the routes already use, and there is no reason to do it
 	// twice or for the two things to be able to disagree.
-	property bool hayLocal: false
+	property bool hasLocal: false
 
 	// Reachable from outside so the field can be written to from the
 	// self-test: checking the debounce requires actually typing.
-	property alias campo: campo
-	property alias resultados: resultados
+	property alias field: field
+	property alias results: results
 	// How many queries have been fired. The self-test looks at it to check that
 	// typing nine letters gives ONE search and not nine; counting inserted rows
 	// is no good, because a single search inserts twelve.
-	property int consultas: 0
+	property int queries: 0
 
-	property string estado: ""   // "", "buscando", "listo", "error"
-	property string fallo: ""
-	property var _peticion: null
+	property string status: ""   // "", "buscando", "ready", "error"
+	property string failure: ""
+	property var _pending: null
 
-	readonly property bool sinRed: estado === "error" && fallo.indexOf("connection") >= 0
+	readonly property bool noNetwork: status === "error" && failure.indexOf("connection") >= 0
 
 	visible: false
 	anchors.fill: parent
 
-	onFavoritosJsonChanged: _cargarFavoritos()
-	Component.onCompleted: _cargarFavoritos()
+	onFavoritesJsonChanged: _loadFavorites()
+	Component.onCompleted: _loadFavorites()
 
-	function abrir() {
+	function open() {
 		visible = true
-		campo.forceActiveFocus()
-		campo.selectAll()
+		field.forceActiveFocus()
+		field.selectAll()
 	}
 
-	function cerrar() {
+	function close() {
 		// Keyboard away WHENEVER you leave here, not only when pressing search.
-		// It goes in 'cerrar' and not in every place that chooses a destination because
+		// It goes in 'close' and not in every place that chooses a destination because
 		// all the exits pass through here -- a result, a save, the cross --
 		// and putting this in three places guarantees that one day it is missing from one.
-		campo.focus = false
+		field.focus = false
 		Qt.inputMethod.hide()
-		if (_peticion) {
-			_peticion.abort()
-			_peticion = null
+		if (_pending) {
+			_pending.abort()
+			_pending = null
 		}
 		visible = false
 	}
 
 	// --- saved places -----------------------------------------------------
-	function _cargarFavoritos() {
-		favoritos.clear()
-		var lista
+	function _loadFavorites() {
+		favorites.clear()
+		var items
 		try {
-			lista = JSON.parse(favoritosJson)
+			items = JSON.parse(favoritesJson)
 		} catch (e) {
 			return
 		}
-		if (!lista || !lista.length)
+		if (!items || !items.length)
 			return
-		for (var i = 0; i < lista.length; ++i)
-			favoritos.append({
-				nombre: lista[i].nombre,
-				lat: lista[i].lat,
-				lon: lista[i].lon
+		for (var i = 0; i < items.length; ++i)
+			favorites.append({
+				name: items[i].name,
+				lat: items[i].lat,
+				lon: items[i].lon
 			})
 	}
 
-	function _volcarFavoritos() {
-		const salida = []
-		for (var i = 0; i < favoritos.count; ++i) {
-			const f = favoritos.get(i)
-			salida.push({ nombre: f.nombre, lat: f.lat, lon: f.lon })
+	function _dumpFavorites() {
+		const output = []
+		for (var i = 0; i < favorites.count; ++i) {
+			const f = favorites.get(i)
+			output.push({ name: f.name, lat: f.lat, lon: f.lon })
 		}
-		favoritosCambiados(JSON.stringify(salida))
+		favoritesChanged(JSON.stringify(output))
 	}
 
-	function guardar(nombre, lat, lon) {
+	function save(name, lat, lon) {
 		// Same place twice is clutter, and "same" here means the same spot,
 		// not the same spelling: Nominatim writes a name a dozen ways.
-		for (var i = 0; i < favoritos.count; ++i) {
-			const f = favoritos.get(i)
+		for (var i = 0; i < favorites.count; ++i) {
+			const f = favorites.get(i)
 			if (Math.abs(f.lat - lat) < 1e-5 && Math.abs(f.lon - lon) < 1e-5)
 				return
 		}
-		favoritos.append({ nombre: nombre, lat: lat, lon: lon })
-		_volcarFavoritos()
+		favorites.append({ name: name, lat: lat, lon: lon })
+		_dumpFavorites()
 	}
 
-	function olvidar(indice) {
-		favoritos.remove(indice)
-		_volcarFavoritos()
+	function forget(index) {
+		favorites.remove(index)
+		_dumpFavorites()
 	}
 
 	// --- search as you type (0.8 s debounce) ---------------------------------
@@ -148,85 +148,85 @@ Item {
 	//
 	// On the phone there is no such problem: the database is ours and a search takes
 	// between 5 and 30 ms, measured over the whole of Spain.
-	readonly property Timer antirrebote: Timer {
+	readonly property Timer debounce: Timer {
 		interval: 800
 		onTriggered: {
-			const texto = campo.text.trim()
-			if (texto.length >= 2 && buscador.hayLocal)
-				buscador._buscarEnCasa(texto, false)
+			const text = field.text.trim()
+			if (text.length >= 2 && finder.hasLocal)
+				finder._searchAtHome(text, false)
 		}
 	}
 
-	function alEscribir() {
-		if (!hayLocal)
+	function onTyping() {
+		if (!hasLocal)
 			return
 		// Emptying the field clears the list at once: leaving the results of what
 		// has already been deleted is what makes a live search feel
 		// sticky.
-		if (campo.text.trim().length < 2) {
-			antirrebote.stop()
-			resultados.clear()
-			estado = ""
+		if (field.text.trim().length < 2) {
+			debounce.stop()
+			results.clear()
+			status = ""
 			return
 		}
-		antirrebote.restart()
+		debounce.restart()
 	}
 
-	function buscar() {
-		antirrebote.stop()
+	function search() {
+		debounce.stop()
 		// Keyboard away. It takes up half the screen and what you want to see right
 		// after searching are the RESULTS, which are below.
-		campo.focus = false
+		field.focus = false
 		Qt.inputMethod.hide()
-		const texto = campo.text.trim()
-		if (texto.length < 2)
+		const text = field.text.trim()
+		if (text.length < 2)
 			return
-		if (_peticion)
-			_peticion.abort()
+		if (_pending)
+			_pending.abort()
 
-		resultados.clear()
-		estado = "buscando"
-		fallo = ""
+		results.clear()
+		status = "buscando"
+		failure = ""
 
 		// With downloaded maps the search runs on the phone, otherwise over the network. Same
 		// rule as the routes: if it is at home, the home one is used.
-		if (hayLocal)
-			_buscarEnCasa(texto, true)
+		if (hasLocal)
+			_searchAtHome(text, true)
 		else
-			_buscarPorRed(texto)
+			_searchByNetwork(text)
 	}
 
 	// The application's own server, the same one that computes the routes. Its
 	// database comes with the downloaded region.
-	// 'permitirRed' distinguishes the two ways of getting here. Searching live it CANNOT
+	// 'allowNetwork' distinguishes the two ways of getting here. Searching live it CANNOT
 	// fall back to Nominatim even if the phone finds nothing: it would be
 	// exactly what its policy forbids, one request for every pause while
 	// typing. Pressing search, yes.
-	function _buscarEnCasa(texto, permitirRed) {
-		buscador.consultas += 1
-		const cuerpo = { q: texto, limite: 12 }
-		if (cerca)
-			cuerpo.cerca = { lat: cerca.latitude, lon: cerca.longitude }
+	function _searchAtHome(text, allowNetwork) {
+		finder.queries += 1
+		const body = { q: text, limit: 12 }
+		if (near)
+			body.near = { lat: near.latitude, lon: near.longitude }
 
 		const x = new XMLHttpRequest()
-		_peticion = x
+		_pending = x
 		x.onreadystatechange = function () {
 			if (x.readyState !== XMLHttpRequest.DONE)
 				return
-			buscador._peticion = null
+			finder._pending = null
 			// If the home server fails, the network is tried before giving
 			// up: it may not have started yet, or the downloaded region
 			// may not cover what is being searched for.
 			if (x.status !== 200) {
-				if (permitirRed)
-					buscador._buscarPorRed(texto)
+				if (allowNetwork)
+					finder._searchByNetwork(text)
 				else
-					estado = "listo"
+					status = "ready"
 				return
 			}
 			try {
-				const lista = JSON.parse(x.responseText).resultados || []
-				// It is cleared HERE and not only in buscar(): when searching live, the
+				const items = JSON.parse(x.responseText).results || []
+				// It is cleared HERE and not only in search(): when searching live, the
 				// timer calls this function directly, and without this each pause
 				// while typing would add another batch below the previous one.
 				//
@@ -234,95 +234,95 @@ Item {
 				// the response arrives leaves it blank for a moment on every
 				// pause, which is exactly the flicker that makes a live
 				// search feel broken.
-				resultados.clear()
-				for (var i = 0; i < lista.length; ++i) {
-					const r = lista[i]
+				results.clear()
+				for (var i = 0; i < items.length; ++i) {
+					const r = items[i]
 					const c = QtPositioning.coordinate(r.lat, r.lon)
-					resultados.append({
-						nombre: r.nombre,
+					results.append({
+						name: r.name,
 						// The type comes from OSM in English and with an underscore
 						// ("place_town"). It is shown readable: it is the only thing that
 						// distinguishes two places with the same name.
-						detalle: buscador._legible(r.tipo),
+						detail: finder._readable(r.kind),
 						lat: c.latitude,
 						lon: c.longitude,
-						lejos: cerca ? cerca.distanceTo(c) : 0
+						far: near ? near.distanceTo(c) : 0
 					})
 				}
-				if (resultados.count === 0 && permitirRed) {
+				if (results.count === 0 && allowNetwork) {
 					// No results at home is NOT the same as not having
 					// searched: it may be outside the downloaded region.
-					buscador._buscarPorRed(texto)
+					finder._searchByNetwork(text)
 					return
 				}
-				estado = "listo"
+				status = "ready"
 			} catch (e) {
-				if (permitirRed)
-					buscador._buscarPorRed(texto)
+				if (allowNetwork)
+					finder._searchByNetwork(text)
 				else
-					estado = "listo"
+					status = "ready"
 			}
 		}
 		x.open("POST", "http://127.0.0.1:8554/search")
 		x.setRequestHeader("Content-Type", "application/json")
-		x.send(JSON.stringify(cuerpo))
+		x.send(JSON.stringify(body))
 	}
 
-	function _legible(tipo) {
-		if (!tipo)
+	function _readable(kind) {
+		if (!kind)
 			return ""
-		const t = tipo.split("_")
-		const nombres = {
+		const t = kind.split("_")
+		const names = {
 			"place": "town", "boundary": "municipality", "highway": "road",
 			"natural": "natural feature", "amenity": "amenity", "tourism": "tourism",
 			"shop": "shop", "leisure": "leisure", "building": "building",
 			"aeroway": "airport", "railway": "railway", "landuse": "area",
 			"healthcare": "healthcare", "aerialway": "cable car"
 		}
-		return nombres[t[0]] || t[0]
+		return names[t[0]] || t[0]
 	}
 
-	function _buscarPorRed(texto) {
+	function _searchByNetwork(text) {
 		var url = "https://nominatim.openstreetmap.org/search?format=jsonv2&limit=8"
-			+ "&accept-language=es&q=" + encodeURIComponent(texto)
-		if (cerca) {
+			+ "&accept-language=es&q=" + encodeURIComponent(text)
+		if (near) {
 			// A box around you, unbounded: it ranks what is near first without
 			// hiding the rest.
 			const d = 0.6
-			url += "&viewbox=" + (cerca.longitude - d) + "," + (cerca.latitude + d)
-				+ "," + (cerca.longitude + d) + "," + (cerca.latitude - d)
+			url += "&viewbox=" + (near.longitude - d) + "," + (near.latitude + d)
+				+ "," + (near.longitude + d) + "," + (near.latitude - d)
 		}
 
 		const x = new XMLHttpRequest()
-		_peticion = x
+		_pending = x
 		x.onreadystatechange = function () {
 			if (x.readyState !== XMLHttpRequest.DONE)
 				return
-			buscador._peticion = null
+			finder._pending = null
 			if (x.status !== 200) {
-				estado = "error"
-				fallo = x.status === 0 ? qsTr("no connection")
+				status = "error"
+				failure = x.status === 0 ? qsTr("no connection")
 					: qsTr("the search server responded %1").arg(x.status)
 				return
 			}
 			try {
-				const lista = JSON.parse(x.responseText)
-				for (var i = 0; i < lista.length; ++i) {
-					const r = lista[i]
+				const items = JSON.parse(x.responseText)
+				for (var i = 0; i < items.length; ++i) {
+					const r = items[i]
 					const c = QtPositioning.coordinate(parseFloat(r.lat), parseFloat(r.lon))
-					resultados.append({
-						nombre: r.name && r.name.length ? r.name
+					results.append({
+						name: r.name && r.name.length ? r.name
 							: r.display_name.split(",")[0],
-						detalle: r.display_name,
+						detail: r.display_name,
 						lat: c.latitude,
 						lon: c.longitude,
-						lejos: cerca ? cerca.distanceTo(c) : 0
+						far: near ? near.distanceTo(c) : 0
 					})
 				}
-				estado = "listo"
+				status = "ready"
 			} catch (e) {
-				estado = "error"
-				fallo = qsTr("I could not understand the search response")
+				status = "error"
+				failure = qsTr("I could not understand the search response")
 			}
 		}
 		x.open("GET", url)
@@ -337,10 +337,10 @@ Item {
 	// navigators in the US say and what people expect to hear. The cut-off
 	// is at 528 feet, which is half a mile divided by five -- round in their
 	// system, ugly in ours, and that is why dividing by a thousand does not work.
-	property bool millas: false
+	property bool miles: false
 
 	function _dist(m) {
-		if (millas) {
+		if (miles) {
 			const mi = m / 1609.344
 			if (mi < 0.1)
 				return Math.round(m * 3.28084 / 10) * 10 + " ft"
@@ -353,17 +353,17 @@ Item {
 		return (m / 1000).toFixed(m < 10000 ? 1 : 0).replace(".", ",") + " km"
 	}
 
-	function _lejania(m) {
+	function _farText(m) {
 		return m <= 0 ? "" : "  ·  " + _dist(m)
 	}
 
-	ListModel { id: resultados }
-	ListModel { id: favoritos }
+	ListModel { id: results }
+	ListModel { id: favorites }
 
 	// Tapping outside closes. Also stops taps reaching the map underneath.
 	MouseArea {
 		anchors.fill: parent
-		onClicked: buscador.cerrar()
+		onClicked: finder.close()
 	}
 
 	Rectangle {
@@ -381,15 +381,15 @@ Item {
 		width: Math.min(parent.width - Kirigami.Units.largeSpacing * 2,
 			Kirigami.Units.gridUnit * 36)
 		height: Math.min(parent.height - Kirigami.Units.largeSpacing * 2,
-			contenido.implicitHeight + Kirigami.Units.largeSpacing * 2)
-		radius: buscador.p.radioGrande
-		color: buscador.p.fondo
+			content.implicitHeight + Kirigami.Units.largeSpacing * 2)
+		radius: finder.p.cornerRadiusLarge
+		color: finder.p.surface
 
 		// Swallows the taps that would otherwise close the sheet.
 		MouseArea { anchors.fill: parent }
 
 		ColumnLayout {
-			id: contenido
+			id: content
 			anchors.fill: parent
 			anchors.margins: Kirigami.Units.largeSpacing
 			spacing: Kirigami.Units.smallSpacing
@@ -399,53 +399,53 @@ Item {
 				spacing: Kirigami.Units.smallSpacing
 
 				QQC2.TextField {
-					id: campo
+					id: field
 					Layout.fillWidth: true
-					Layout.preferredHeight: buscador.alto
+					Layout.preferredHeight: finder.tall
 					placeholderText: qsTr("Where to?")
 					font.pointSize: Kirigami.Theme.defaultFont.pointSize * 1.3
 					inputMethodHints: Qt.ImhNoPredictiveText
-					onAccepted: buscador.buscar()
-					onTextChanged: buscador.alEscribir()
-					color: buscador.p.tintaOscura
-					placeholderTextColor: buscador.p.tintaSuave
+					onAccepted: finder.search()
+					onTextChanged: finder.onTyping()
+					color: finder.p.inkDark
+					placeholderTextColor: finder.p.inkSoft
 					leftPadding: Kirigami.Units.largeSpacing * 1.5
 					rightPadding: leftPadding
 					background: Rectangle {
 						radius: height / 2
-						color: buscador.p.blanco
+						color: finder.p.white
 					}
 				}
 
 				QQC2.AbstractButton {
-					id: botonLupa
-					Layout.preferredWidth: buscador.alto
-					Layout.preferredHeight: buscador.alto
-					onClicked: buscador.buscar()
+					id: magnifyButton
+					Layout.preferredWidth: finder.tall
+					Layout.preferredHeight: finder.tall
+					onClicked: finder.search()
 					background: Rectangle {
 						radius: height / 2
-						color: botonLupa.pressed ? buscador.p.azulCasco : buscador.p.azul
+						color: magnifyButton.pressed ? finder.p.blueCasing : finder.p.blue
 					}
 					contentItem: Kirigami.Icon {
 						source: "search"
 						isMask: true
-						color: buscador.p.blanco
+						color: finder.p.white
 					}
 				}
 
 				QQC2.AbstractButton {
-					id: botonCerrar
-					Layout.preferredWidth: buscador.alto
-					Layout.preferredHeight: buscador.alto
-					onClicked: buscador.cerrar()
+					id: closeButton
+					Layout.preferredWidth: finder.tall
+					Layout.preferredHeight: finder.tall
+					onClicked: finder.close()
 					background: Rectangle {
 						radius: height / 2
-						color: botonCerrar.pressed ? buscador.p.tintaSuave : buscador.p.fondoAlto
+						color: closeButton.pressed ? finder.p.inkSoft : finder.p.surfaceHigh
 					}
 					contentItem: Kirigami.Icon {
 						source: "dialog-close"
 						isMask: true
-						color: buscador.p.tinta
+						color: finder.p.ink
 					}
 				}
 			}
@@ -454,23 +454,23 @@ Item {
 				Layout.fillWidth: true
 				visible: text.length > 0
 				text: {
-					if (buscador.estado === "buscando")
+					if (finder.status === "buscando")
 						return qsTr("Searching…")
-					if (buscador.sinRed)
+					if (finder.noNetwork)
 						return qsTr("No connection. Your saved places still work, and "
 							+ "you can hold your finger on the map to set "
 							+ "the destination there.")
-					if (buscador.estado === "error")
-						return buscador.fallo
-					if (buscador.estado === "listo" && resultados.count === 0)
+					if (finder.status === "error")
+						return finder.failure
+					if (finder.status === "ready" && results.count === 0)
 						return qsTr("No results")
-					if (buscador.estado !== "listo" && favoritos.count === 0)
-						return buscador.hayLocal
+					if (finder.status !== "ready" && favorites.count === 0)
+						return finder.hasLocal
 							? qsTr("Type: it searches on its own.")
 							: qsTr("Type a place, a street or a town.")
 					return ""
 				}
-				color: buscador.p.tintaSuave
+				color: finder.p.inkSoft
 				wrapMode: Text.WordWrap
 				padding: Kirigami.Units.smallSpacing
 			}
@@ -478,63 +478,63 @@ Item {
 			// --- saved places, while there is nothing else to show ---------
 			QQC2.Label {
 				Layout.fillWidth: true
-				visible: listaFavoritos.visible
+				visible: favoritesList.visible
 				text: qsTr("Saved")
 				font.bold: true
-				color: buscador.p.tintaSuave
+				color: finder.p.inkSoft
 				padding: Kirigami.Units.smallSpacing
 			}
 
 			ListView {
-				id: listaFavoritos
+				id: favoritesList
 				Layout.fillWidth: true
-				Layout.preferredHeight: Math.min(count * buscador.alto * 1.2,
+				Layout.preferredHeight: Math.min(count * finder.tall * 1.2,
 					Kirigami.Units.gridUnit * 14)
-				visible: count > 0 && resultados.count === 0
+				visible: count > 0 && results.count === 0
 				clip: true
-				model: favoritos
+				model: favorites
 				spacing: 1
 
 				delegate: QQC2.ItemDelegate {
-					id: filaFav
+					id: favRow
 					width: ListView.view.width
-					height: buscador.alto * 1.2
+					height: finder.tall * 1.2
 					// Without this, Breeze paints the delegate white and the light
 					// text on top is illegible over the dark sheet.
 					background: Rectangle {
-						radius: buscador.p.radio
-						color: filaFav.pressed ? buscador.p.fondoAlto : "transparent"
+						radius: finder.p.cornerRadius
+						color: favRow.pressed ? finder.p.surfaceHigh : "transparent"
 					}
 					onClicked: {
-						buscador.elegido(QtPositioning.coordinate(model.lat, model.lon),
-							model.nombre)
-						buscador.cerrar()
+						finder.chosen(QtPositioning.coordinate(model.lat, model.lon),
+							model.name)
+						finder.close()
 					}
 
 					contentItem: RowLayout {
 						spacing: Kirigami.Units.smallSpacing
 						QQC2.Label {
 							Layout.fillWidth: true
-							text: model.nombre + buscador._lejania(buscador.cerca
-								? buscador.cerca.distanceTo(
+							text: model.name + finder._farText(finder.near
+								? finder.near.distanceTo(
 									QtPositioning.coordinate(model.lat, model.lon)) : 0)
 							font.pointSize: Kirigami.Theme.defaultFont.pointSize * 1.15
-							color: buscador.p.tinta
+							color: finder.p.ink
 							elide: Text.ElideRight
 						}
 						QQC2.AbstractButton {
-							id: botonOlvidar
-							Layout.preferredWidth: buscador.alto
-							Layout.preferredHeight: buscador.alto
-							onClicked: buscador.olvidar(model.index)
+							id: forgetButton
+							Layout.preferredWidth: finder.tall
+							Layout.preferredHeight: finder.tall
+							onClicked: finder.forget(model.index)
 							background: Rectangle {
 								radius: height / 2
-								color: botonOlvidar.pressed ? buscador.p.fondoAlto : "transparent"
+								color: forgetButton.pressed ? finder.p.surfaceHigh : "transparent"
 							}
 							contentItem: Kirigami.Icon {
 								source: "edit-delete"
 								isMask: true
-								color: buscador.p.tintaSuave
+								color: finder.p.inkSoft
 							}
 						}
 					}
@@ -544,25 +544,25 @@ Item {
 			// --- what the search found -------------------------------------
 			ListView {
 				Layout.fillWidth: true
-				Layout.preferredHeight: Math.min(count * buscador.alto * 1.5,
+				Layout.preferredHeight: Math.min(count * finder.tall * 1.5,
 					Kirigami.Units.gridUnit * 20)
 				visible: count > 0
 				clip: true
-				model: resultados
+				model: results
 				spacing: 1
 
 				delegate: QQC2.ItemDelegate {
-					id: filaRes
+					id: resultRow
 					width: ListView.view.width
-					height: buscador.alto * 1.5
+					height: finder.tall * 1.5
 					background: Rectangle {
-						radius: buscador.p.radio
-						color: filaRes.pressed ? buscador.p.fondoAlto : "transparent"
+						radius: finder.p.cornerRadius
+						color: resultRow.pressed ? finder.p.surfaceHigh : "transparent"
 					}
 					onClicked: {
-						buscador.elegido(QtPositioning.coordinate(model.lat, model.lon),
-							model.nombre)
-						buscador.cerrar()
+						finder.chosen(QtPositioning.coordinate(model.lat, model.lon),
+							model.name)
+						finder.close()
 					}
 
 					contentItem: RowLayout {
@@ -573,34 +573,34 @@ Item {
 							spacing: 0
 							QQC2.Label {
 								Layout.fillWidth: true
-								text: model.nombre + buscador._lejania(model.lejos)
+								text: model.name + finder._farText(model.far)
 								font.pointSize: Kirigami.Theme.defaultFont.pointSize * 1.15
 								font.bold: true
-								color: buscador.p.tinta
+								color: finder.p.ink
 								elide: Text.ElideRight
 							}
 							QQC2.Label {
 								Layout.fillWidth: true
-								text: model.detalle
+								text: model.detail
 								font.pointSize: Kirigami.Theme.smallFont.pointSize
-								color: buscador.p.tintaSuave
+								color: finder.p.inkSoft
 								elide: Text.ElideRight
 							}
 						}
 
 						QQC2.AbstractButton {
-							id: botonFav
-							Layout.preferredWidth: buscador.alto
-							Layout.preferredHeight: buscador.alto
-							onClicked: buscador.guardar(model.nombre, model.lat, model.lon)
+							id: favButton
+							Layout.preferredWidth: finder.tall
+							Layout.preferredHeight: finder.tall
+							onClicked: finder.save(model.name, model.lat, model.lon)
 							background: Rectangle {
 								radius: height / 2
-								color: botonFav.pressed ? buscador.p.fondoAlto : "transparent"
+								color: favButton.pressed ? finder.p.surfaceHigh : "transparent"
 							}
 							contentItem: Kirigami.Icon {
 								source: "bookmark-new"
 								isMask: true
-								color: buscador.p.tintaSuave
+								color: finder.p.inkSoft
 							}
 						}
 					}
@@ -620,44 +620,44 @@ Item {
 				spacing: Kirigami.Units.smallSpacing
 
 				QQC2.AbstractButton {
-					id: swPeajes
+					id: swTolls
 					Layout.fillWidth: true
 					// Starting width ZERO so the split is in equal
 					// parts. With only fillWidth each button keeps what
 					// its text asks for, and "Avoid unpaved" is longer
 					// than "Avoid ferries": the two rows did not line up.
 					Layout.preferredWidth: 0
-					Layout.preferredHeight: buscador.alto
-					onClicked: buscador.alternarPeajes()
+					Layout.preferredHeight: finder.tall
+					onClicked: finder.toggleTolls()
 					background: Rectangle {
 						radius: height / 2
-						color: buscador.evitarPeajes ? buscador.p.azul : buscador.p.fondoAlto
+						color: finder.avoidTolls ? finder.p.blue : finder.p.surfaceHigh
 					}
 					contentItem: QQC2.Label {
 						text: qsTr("Avoid tolls")
-						color: buscador.p.tinta
+						color: finder.p.ink
 						horizontalAlignment: Text.AlignHCenter
 						verticalAlignment: Text.AlignVCenter
 					}
 				}
 
 				QQC2.AbstractButton {
-					id: swAutopistas
+					id: swMotorways
 					Layout.fillWidth: true
 					// Starting width ZERO so the split is in equal
 					// parts. With only fillWidth each button keeps what
 					// its text asks for, and "Avoid unpaved" is longer
 					// than "Avoid ferries": the two rows did not line up.
 					Layout.preferredWidth: 0
-					Layout.preferredHeight: buscador.alto
-					onClicked: buscador.alternarAutopistas()
+					Layout.preferredHeight: finder.tall
+					onClicked: finder.toggleMotorways()
 					background: Rectangle {
 						radius: height / 2
-						color: buscador.evitarAutopistas ? buscador.p.azul : buscador.p.fondoAlto
+						color: finder.avoidMotorways ? finder.p.blue : finder.p.surfaceHigh
 					}
 					contentItem: QQC2.Label {
 						text: qsTr("Avoid motorways")
-						color: buscador.p.tinta
+						color: finder.p.ink
 						horizontalAlignment: Text.AlignHCenter
 						verticalAlignment: Text.AlignVCenter
 					}
@@ -672,44 +672,44 @@ Item {
 				spacing: Kirigami.Units.smallSpacing
 
 				QQC2.AbstractButton {
-					id: swFerris
+					id: swFerries
 					Layout.fillWidth: true
 					// Starting width ZERO so the split is in equal
 					// parts. With only fillWidth each button keeps what
 					// its text asks for, and "Avoid unpaved" is longer
 					// than "Avoid ferries": the two rows did not line up.
 					Layout.preferredWidth: 0
-					Layout.preferredHeight: buscador.alto
-					onClicked: buscador.alternarFerris()
+					Layout.preferredHeight: finder.tall
+					onClicked: finder.toggleFerries()
 					background: Rectangle {
 						radius: height / 2
-						color: buscador.evitarFerris ? buscador.p.azul : buscador.p.fondoAlto
+						color: finder.avoidFerries ? finder.p.blue : finder.p.surfaceHigh
 					}
 					contentItem: QQC2.Label {
 						text: qsTr("Avoid ferries")
-						color: buscador.p.tinta
+						color: finder.p.ink
 						horizontalAlignment: Text.AlignHCenter
 						verticalAlignment: Text.AlignVCenter
 					}
 				}
 
 				QQC2.AbstractButton {
-					id: swTierra
+					id: swUnpaved
 					Layout.fillWidth: true
 					// Starting width ZERO so the split is in equal
 					// parts. With only fillWidth each button keeps what
 					// its text asks for, and "Avoid unpaved" is longer
 					// than "Avoid ferries": the two rows did not line up.
 					Layout.preferredWidth: 0
-					Layout.preferredHeight: buscador.alto
-					onClicked: buscador.alternarTierra()
+					Layout.preferredHeight: finder.tall
+					onClicked: finder.toggleUnpaved()
 					background: Rectangle {
 						radius: height / 2
-						color: buscador.evitarTierra ? buscador.p.azul : buscador.p.fondoAlto
+						color: finder.avoidUnpaved ? finder.p.blue : finder.p.surfaceHigh
 					}
 					contentItem: QQC2.Label {
 						text: qsTr("Avoid unpaved")
-						color: buscador.p.tinta
+						color: finder.p.ink
 						horizontalAlignment: Text.AlignHCenter
 						verticalAlignment: Text.AlignVCenter
 					}
@@ -724,7 +724,7 @@ Item {
 				Layout.topMargin: Kirigami.Units.smallSpacing
 				text: qsTr("Search by OpenStreetMap (Nominatim)")
 				font.pointSize: Kirigami.Theme.smallFont.pointSize
-				color: buscador.p.tintaSuave
+				color: finder.p.inkSoft
 				opacity: 0.8
 				horizontalAlignment: Text.AlignRight
 			}

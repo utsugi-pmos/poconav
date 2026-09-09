@@ -239,7 +239,7 @@ needs. Measured over the same pair of points, Bolnuevo → Mazarrón:
 | | |
 |---|---|
 | **Qt / OSRM** | `Enter the roundabout and take the second exit` + `exit roundabout to/onto  ` — two steps for a roundabout, and without the name |
-| **Valhalla** | `Haga la rotonda y tome la salida 3.º hacia RM-D6.` |
+| **Valhalla** | `Haga la roundabout y tome la output 3.º toward RM-D6.` |
 
 The server writes, so **the language is a parameter** and the exit number comes inside.
 Qt's parser can do neither of those two things.
@@ -293,7 +293,7 @@ someone from outside has to download.
 
 So now there is a C++ backend (`src/backend.cpp`) and the application is a real
 package. The QML barely changed: where it wrote to the settings file, it now calls
-`app.decir(...)` or `app.bajarMapa(...)`.
+`app.speak(...)` or `app.downloadMap(...)`.
 
 What was gained, besides the features:
 
@@ -315,7 +315,7 @@ the dumb solution —not letting it turn off while the application is open— is
 leave the map open in your pocket and arrive with no battery.
 
 So the lock **comes and goes with the navigation**: on entering drive mode the QML
-calls `app.mantenerPantalla(true)` and the backend raises a `systemd-inhibit
+calls `app.keepScreenOn(true)` and the backend raises a `systemd-inhibit
 --what=idle`, which is what PowerDevil looks at to turn off the screen by itself. On
 leaving, it releases it.
 
@@ -329,7 +329,7 @@ you press it for.
 Two modes of the binary itself and one button, and all three exist because that is
 exactly what I was missing.
 
-### `--probar`: the self-test
+### `--test`: the self-test
 
 It loads the **same** `Route.qml` against the **same** backend and asks for real
 routes: one on the phone, another over the internet, the planner with filters, the
@@ -363,7 +363,7 @@ application — precisely the half that matters while driving — there was no w
 
 To make it possible, where the position comes from had to be gathered in one place. It
 was spread across twenty reads of `gps.position`; now there is `root.coord`,
-`root.velocidad` and `root.rumboFuente`. With the twenty loose, simulating would have
+`root.speed` and `root.headingSource`. With the twenty loose, simulating would have
 been patching seventeen and forgetting three.
 
 **And it found the fault on the first try.** Travelling the whole route, the application
@@ -371,11 +371,11 @@ reached the last point and kept saying **91 metres** remained. Since arrival req
 less than 25, the trip never finished: neither the navigation closes, nor the saved
 route is cleared, nor the screen released.
 
-The cause: `metrosTotal` came from `summary.length` —what Valhalla says, taken from the
+The cause: `totalMeters` came from `summary.length` —what Valhalla says, taken from the
 graph edges— but progress is measured over the decoded polyline. Two measurements of
 the same route: 77.40 km and 77.31 km. That difference stayed always left to travel.
 
-### `--retratos <carpeta>`: the application photographs itself
+### `--portraits <folder>`: the application photographs itself
 
 Eleven screens —home, search, settings, routes, alert and drive, in both orientations—
 painted in memory with `QT_QPA_PLATFORM=offscreen` and saved with `grabToImage`.
@@ -386,7 +386,7 @@ single clue. This needs no screen, no unlocking, no having the phone at hand, an
 come out **always the same**, which is what lets you compare a change of margins with
 what came before.
 
-The `lienzo` is photographed and not the window: a window's `contentItem` is built by
+The `canvas` is photographed and not the window: a window's `contentItem` is built by
 C++ and `grabToImage` rejects it with *"item has no QML engine"*.
 
 **The first thing it showed**: the map buttons came out as empty circles.
@@ -404,14 +404,14 @@ empty.
 
 ## QML traps that cost a batch each
 
-- **An anchor set to `undefined` is NOT removed.** `anchors.bottom: apaisado ?
+- **An anchor set to `undefined` is NOT removed.** `anchors.bottom: landscape ?
   parent.bottom : undefined` leaves the anchor set forever as soon as it evaluates once
   to `parent.bottom`. On turning to portrait, the panel stayed full-screen and the map
   measured `540x0`. The panel's geometry and the map's are computed by hand, without
   anchors.
 - **A signal handler can run before a binding that depends on the same thing.**
-  `encuadrarRuta()` started with `if (!ruta.hay) return`, and called from
-  `onEstadoChanged` `hay` was still `false`: the framing was done *never* and half the
+  `frameRoute()` started with `if (!route.exists) return`, and called from
+  `onStatusChanged` `exists` was still `false`: the framing was done *never* and half the
   route stayed off screen, without a single error. Now it looks at the array directly.
 - **GPS tracking undoes any framing.** On entering the preview you have to release the
   tracking, or the next fix recentres the map on you and throws the framing in the bin.
@@ -599,7 +599,7 @@ row downloads the box **beneath the phone**.
 And it is downloaded **separately** from the routes: for Spain it is 1.1 GB of being
 able to go against 1.9 GB of being able to see. Joining them would force waiting for both
 to navigate, and whoever just wants to arrive should not have to pay for the pretty map.
-That is why the backend carries two lists, `mapas` and `dibujables`, and the row says
+That is why the backend carries two lists, `maps` and `drawables`, and the row says
 which of the two things each region has.
 
 #### The style is read from osmscout-server
@@ -648,9 +648,9 @@ Measured: with the session locked, zero tiles. With the window visible, seven wi
 few seconds. To check it by hand, with the phone in front and unlocked:
 
 ```
-POCONAV_REGISTRO=1 poconav-routes &      # the access log, off by default
-poconav --solo-mapa                     # a map and nothing else
-wget -qO- http://127.0.0.1:8554/status  # brings the 'servidas' counter
+POCONAV_LOG=1 poconav-routes &      # the access log, off by default
+poconav --only-map                     # a map and nothing else
+wget -qO- http://127.0.0.1:8554/status  # brings the 'served' counter
 ```
 
 ### Searching by name: it also works without network
@@ -661,7 +661,7 @@ type, coordinates and hierarchy.
 `osmscout-server` queries it by first normalising the text with **libpostal**, which
 Alpine does not package — and that was what made me give the search up for blocked for
 days. But libpostal is only needed for the hard part, understanding that «c/ mayor 3» is
-«calle mayor número 3». To search for a town or a street by its name, matching words is
+«street mayor número 3». To search for a town or a street by its name, matching words is
 enough, and that can be done.
 
 Two things were needed:
@@ -675,8 +675,8 @@ Two things were needed:
   out first. Now what rules is how much the **whole** name resembles, and with that tied,
   what it is: a municipality ahead of a hotel of the same name.
 
-And a fault that cost me a batch: it passed the same `limite` to SQL's `LIMIT`, so it
-trimmed **before** ordering — with `limite=4`, the town fell outside the cut and never got
+And a fault that cost me a batch: it passed the same `limit` to SQL's `LIMIT`, so it
+trimmed **before** ordering — with `limit=4`, the town fell outside the cut and never got
 to be compared. Now SQL returns plenty and the order is decided afterwards.
 
 If the downloaded region does not cover what is searched, **it falls back to Nominatim**
@@ -697,4 +697,4 @@ The **`gps`** setting. Without it:
   without saying anything.
 
 The application detects both things and says so on screen instead of spinning a wheel
-forever, but the fix is in `setup/ajustes/gps`.
+forever, but the fix is in `setup/settings/gps`.

@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: LGPL-2.0-or-later
 //
-// `poconav --retratos <folder>`: the application photographs itself.
+// `poconav --portraits <folder>`: the application photographs itself.
 //
 // WHY, instead of a normal screenshot
 // -------------------------------------------------
@@ -18,42 +18,42 @@
 // orientations -- and always the same ones, which is what is needed to compare
 // a margin change with what came before.
 //
-// THE CANVAS. `root.lienzo` is photographed and not the window: the contentItem of a
+// THE CANVAS. `root.canvas` is photographed and not the window: the contentItem of a
 // window is built by C++ and grabToImage rejects it with "item has no QML
 // engine". That is why everything visible hangs off an Item made in QML.
 import QtQuick
 import QtPositioning
 
 QtObject {
-	id: retratos
+	id: portraits
 
-	property var ventana: null
-	property string carpeta: ""
+	property var window: null
+	property string folder: ""
 
-	property int _paso: 0
-	property var _cola: []
+	property int _step: 0
+	property var _queue: []
 
 	// A place with a roundabout and a motorway exit nearby, so the
 	// maneuvers portrayed are the interesting ones.
-	readonly property var desde: QtPositioning.coordinate(37.5875, -1.2531)
-	readonly property var hasta: QtPositioning.coordinate(37.9917, -1.1305)
+	readonly property var begin: QtPositioning.coordinate(37.5875, -1.2531)
+	readonly property var end: QtPositioning.coordinate(37.9917, -1.1305)
 	// Cartagena -> Vera takes the AP-7 with a toll; Bolnuevo -> Murcia has
 	// none, so with that one there would be nothing to warn about.
-	readonly property var peajeDesde: QtPositioning.coordinate(37.6155, -0.9875)
-	readonly property var peajeHasta: QtPositioning.coordinate(37.2410, -1.8630)
+	readonly property var tollBegin: QtPositioning.coordinate(37.6155, -0.9875)
+	readonly property var tollEnd: QtPositioning.coordinate(37.2410, -1.8630)
 
-	function arrancar() {
+	function run() {
 		// Each entry: the file name, whether it is landscape, and what to prepare.
-		_cola = [
-			{ f: "01-inicio-apaisado",      ancho: 1200, alto: 540,  prep: "explorar" },
-			{ f: "02-inicio-vertical",      ancho: 540,  alto: 1200, prep: "explorar" },
-			{ f: "03-buscar-apaisado",      ancho: 1200, alto: 540,  prep: "buscar" },
-			{ f: "04-buscar-vertical",      ancho: 540,  alto: 1200, prep: "buscar" },
-			{ f: "04b-resultados-vertical", ancho: 540,  alto: 1200, prep: "resultados" },
-			{ f: "05-ajustes-apaisado",     ancho: 1200, alto: 540,  prep: "ajustes" },
-			{ f: "06-ajustes-vertical",     ancho: 540,  alto: 1200, prep: "ajustes" },
-			{ f: "07-rutas-apaisado",       ancho: 1200, alto: 540,  prep: "rutas" },
-			{ f: "08-rutas-vertical",       ancho: 540,  alto: 1200, prep: "rutas" },
+		_queue = [
+			{ f: "01-start-landscape",      wide: 1200, tall: 540,  prep: "explorar" },
+			{ f: "02-start-vertical",      wide: 540,  tall: 1200, prep: "explorar" },
+			{ f: "03-search-landscape",      wide: 1200, tall: 540,  prep: "search" },
+			{ f: "04-search-vertical",      wide: 540,  tall: 1200, prep: "search" },
+			{ f: "04b-results-vertical", wide: 540,  tall: 1200, prep: "results" },
+			{ f: "05-settings-landscape",     wide: 1200, tall: 540,  prep: "settings" },
+			{ f: "06-settings-vertical",     wide: 540,  tall: 1200, prep: "settings" },
+			{ f: "07-routes-landscape",       wide: 1200, tall: 540,  prep: "routes" },
+			{ f: "08-routes-vertical",       wide: 540,  tall: 1200, prep: "routes" },
 			// THE OVERFLOWED LIST, which is the scroll indicator case.
 			//
 			// With three routes and a normal screen, the whole list fits and the
@@ -63,106 +63,106 @@ QtObject {
 			//
 			// It is not a made-up size: 540x400 is what is left in landscape
 			// with the keyboard open, which is a real situation.
-			{ f: "08b-rutas-desbordada",    ancho: 540,  alto: 400,  prep: "rutas" },
-			{ f: "09-aviso-apaisado",       ancho: 1200, alto: 540,  prep: "aviso" },
-			{ f: "10-conducir-apaisado",    ancho: 1200, alto: 540,  prep: "conducir" },
-			{ f: "11-conducir-vertical",    ancho: 540,  alto: 1200, prep: "conducir" }
+			{ f: "08b-routes-desbordada",    wide: 540,  tall: 400,  prep: "routes" },
+			{ f: "09-warning-landscape",       wide: 1200, tall: 540,  prep: "warning" },
+			{ f: "10-drive-landscape",    wide: 1200, tall: 540,  prep: "drive" },
+			{ f: "11-drive-vertical",    wide: 540,  tall: 1200, prep: "drive" }
 		]
-		_paso = 0
-		_siguiente()
+		_step = 0
+		_next()
 	}
 
-	function _siguiente() {
-		if (_paso >= _cola.length) {
-			console.log("retratos: " + _cola.length + " in " + carpeta)
+	function _next() {
+		if (_step >= _queue.length) {
+			console.log("portraits: " + _queue.length + " in " + folder)
 			Qt.exit(0)
 			return
 		}
-		const e = _cola[_paso]
-		ventana.width = e.ancho
-		ventana.height = e.alto
+		const e = _queue[_step]
+		window.width = e.wide
+		window.height = e.tall
 		// The state is set again right before firing, not only here: on
 		// opening, the application restores the last route on its own and starts
 		// driving, and that clobbered the first portrait -- the driving screen
 		// came out where the initial one should have.
-		retratos._preparar(e.prep)
+		portraits._prepare(e.prep)
 		// Two waits: one for the layout to be redone after changing the size
 		// and another for whatever was requested over the network to arrive. Without the first
 		// portraits come out with the previous orientation half-applied.
-		esperaCorta.restart()
+		shortWait.restart()
 	}
 
-	readonly property Timer esperaCorta: Timer {
+	readonly property Timer shortWait: Timer {
 		interval: 700
-		onTriggered: esperaLarga.restart()
+		onTriggered: longWait.restart()
 	}
 
-	readonly property Timer esperaLarga: Timer {
+	readonly property Timer longWait: Timer {
 		interval: 2500
-		onTriggered: retratos._disparar()
+		onTriggered: portraits._fire()
 	}
 
-	function _preparar(que) {
-		const v = ventana
-		if (que === "explorar") {
-			v.cerrarTodo()
-			v.modo = "explorar"
-		} else if (que === "buscar") {
-			v.cerrarTodo()
-			v.modo = "explorar"
-			v.abrirBuscador()
-		} else if (que === "resultados") {
-			v.cerrarTodo()
-			v.modo = "explorar"
-			v.buscarEnRetrato("cartagena")
-			esperaLarga.interval = 4000
-		} else if (que === "ajustes") {
-			v.cerrarTodo()
-			v.modo = "explorar"
-			v.abrirAjustes()
-		} else if (que === "rutas" || que === "aviso") {
-			v.cerrarTodo()
+	function _prepare(what) {
+		const v = window
+		if (what === "explorar") {
+			v.closeAll()
+			v.mode = "explorar"
+		} else if (what === "search") {
+			v.closeAll()
+			v.mode = "explorar"
+			v.openFinder()
+		} else if (what === "results") {
+			v.closeAll()
+			v.mode = "explorar"
+			v.searchInPortrait("cartagena")
+			longWait.interval = 4000
+		} else if (what === "settings") {
+			v.closeAll()
+			v.mode = "explorar"
+			v.openSettings()
+		} else if (what === "routes" || what === "warning") {
+			v.closeAll()
 			// With the toll filter on for the warning: it is the only way
 			// for there to be a route that breaks a rule and the dialog to exist.
-			v.ponerFiltroPeajes(que === "aviso")
-			if (que === "aviso")
-				v.planificarDesde(peajeDesde, peajeHasta, "Vera")
+			v.setTollFilter(what === "warning")
+			if (what === "warning")
+				v.planFrom(tollBegin, tollEnd, "Vera")
 			else
-				v.planificarDesde(desde, hasta, "Murcia")
-			if (que === "aviso")
-				esperaLarga.interval = 9000   // two requests, and over the network they are slow
-		} else if (que === "conducir") {
-			v.cerrarTodo()
-			v.conducirPrueba(desde, hasta)
+				v.planFrom(begin, end, "Murcia")
+			if (what === "warning")
+				longWait.interval = 9000   // two requests, and over the network they are slow
+		} else if (what === "drive") {
+			v.closeAll()
+			v.driveTest(begin, end)
 			// More wait: the route has to be computed, the car started and let
 			// to travel a stretch so the photo has speed and a real
 			// maneuver ahead.
-			esperaLarga.interval = 12000
+			longWait.interval = 12000
 		}
 	}
 
-	function _disparar() {
-		const e = _cola[_paso]
-		if (e.prep === "explorar" || e.prep === "buscar" || e.prep === "ajustes")
-			retratos._preparar(e.prep)
-		if (e.prep === "aviso")
-			ventana.mostrarAviso()
+	function _fire() {
+		const e = _queue[_step]
+		if (e.prep === "explorar" || e.prep === "search" || e.prep === "settings")
+			portraits._prepare(e.prep)
+		if (e.prep === "warning")
+			window.showWarning()
 
 		// A frame is left so that whatever was just requested is drawn before
 		// the photo.
 		Qt.callLater(function () {
-			ventana.lienzo.grabToImage(function (r) {
-				r.saveToFile(retratos.carpeta + "/" + e.f + ".png")
+			window.canvas.grabToImage(function (r) {
+				r.saveToFile(portraits.folder + "/" + e.f + ".png")
 				// What has actually been painted is measured, not what was requested:
 				// with the 'offscreen' platform the size change is not
 				// immediate and a portrait with the previous size misleads.
-				console.log("  " + e.f + ".png  requested " + e.ancho + "x" + e.alto
-					+ "  canvas " + ventana.lienzo.width + "x" + ventana.lienzo.height
-					+ "  mode " + ventana.modo
-					+ "  buttons y=" + ventana.medirBotonera())
-				retratos._paso += 1
-				esperaLarga.interval = 2500
-				retratos._siguiente()
+				console.log("  " + e.f + ".png  requested " + e.wide + "x" + e.tall
+					+ "  canvas " + window.canvas.width + "x" + window.canvas.height
+					+ "  mode " + window.mode
+					+ "  buttons y=" + window.measureButtons())
+				portraits._step += 1
+				longWait.interval = 2500
+				portraits._next()
 			})
 		})
 	}

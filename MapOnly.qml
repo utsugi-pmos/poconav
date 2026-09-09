@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: LGPL-2.0-or-later
 //
-// `poconav --solo-mapa` -- a map and nothing else.
+// `poconav --only-map` -- a map and nothing else.
 //
 // WHY IT EXISTS
 // -------------
@@ -16,44 +16,44 @@
 // The connector is passed on the command line so the two can be compared on the
 // same screen:
 //
-//     poconav --solo-mapa            maplibre against the own server
-//     poconav --solo-mapa osm        the usual one, over the internet
+//     poconav --only-map            maplibre against the own server
+//     poconav --only-map osm        the usual one, over the internet
 import QtQuick
 import QtQuick.Window
 import QtLocation
 import QtPositioning
 
 Window {
-	id: ventana
+	id: window
 	visible: true
 	width: 720
 	height: 1280
 	color: "#202020"
 	title: "PocoNav: map only"
 
-	// 'soloMapa' is set by main.cpp: "maplibre", "osm" or "minimo".
+	// 'mapOnly' is set by main.cpp: "maplibre", "osm" or "minimum".
 	//
-	// "minimo" is maplibre with a hand-written three-layer style, with no labels
+	// "minimum" is maplibre with a hand-written three-layer style, with no labels
 	// or icons. It serves to separate two faults that from outside look the same:
 	// MapLibre not drawing here, or the big style -- 107 layers of someone else's
 	// JSON -- missing or having something extra.
-	readonly property string modo: soloMapa || "maplibre"
-	readonly property string conector: modo === "osm" ? "osm" : "maplibre"
-	readonly property string tema: modo === "minimo" ? "minimo" : "light"
+	readonly property string mode: mapOnly || "maplibre"
+	readonly property string connector: mode === "osm" ? "osm" : "maplibre"
+	readonly property string theme: mode === "minimum" ? "minimum" : "light"
 
 	Map {
-		id: mapa
+		id: map
 		anchors.fill: parent
 		// Bolnuevo, which is the area that has been downloaded.
 		center: QtPositioning.coordinate(37.5875, -1.2531)
 		zoomLevel: 13
 
 		plugin: Plugin {
-			name: ventana.conector
+			name: window.connector
 
 			PluginParameter {
 				name: "maplibre.map.styles"
-				value: "http://127.0.0.1:8554/mapa/estilo?tema=" + ventana.tema
+				value: "http://127.0.0.1:8554/map/style?theme=" + window.theme
 			}
 			PluginParameter {
 				name: "osm.mapping.providersrepository.address"
@@ -66,12 +66,12 @@ Window {
 		}
 
 		Component.onCompleted: {
-			console.log("solo-mapa: mode", ventana.modo, "| connector", plugin.name,
+			console.log("only-map: mode", window.mode, "| connector", plugin.name,
 				"| types:", supportedMapTypes.length,
 				"| size:", width + "x" + height)
 		}
 
-		onMapReadyChanged: console.log("solo-mapa: mapReady =", mapReady)
+		onMapReadyChanged: console.log("only-map: mapReady =", mapReady)
 	}
 
 	// Every two seconds it moves a little. A still map may request nothing because
@@ -81,12 +81,12 @@ Window {
 		interval: 2000
 		running: true
 		repeat: true
-		property int veces: 0
+		property int ticks: 0
 		onTriggered: {
-			veces += 1
-			mapa.zoomLevel = 12 + (veces % 4)
-			if (veces === 10)
-				console.log("solo-mapa: 20 s spinning, zoom", mapa.zoomLevel)
+			ticks += 1
+			map.zoomLevel = 12 + (ticks % 4)
+			if (ticks === 10)
+				console.log("only-map: 20 s spinning, zoom", map.zoomLevel)
 		}
 	}
 }

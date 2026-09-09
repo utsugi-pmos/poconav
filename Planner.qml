@@ -38,95 +38,95 @@ QtObject {
 	id: plan
 
 	// What the user asked to avoid.
-	property bool evitarPeajes: false
-	property bool evitarAutopistas: false
-	property bool evitarFerris: false
-	property bool evitarTierra: false
+	property bool avoidTolls: false
+	property bool avoidMotorways: false
+	property bool avoidFerries: false
+	property bool avoidUnpaved: false
 
-	property var origen: null
-	property var destino: null
-	property string nombreDestino: ""
+	property var origin: null
+	property var destination: null
+	property string destinationName: ""
 
-	// "", "pidiendo", "listo", "error"
-	property string estado: ""
-	property string fallo: ""
+	// "", "pidiendo", "ready", "error"
+	property string status: ""
+	property string failure: ""
 
 	// How many are shown. Four fit on screen without scrolling, and scrolling
 	// a list with the car moving is not something you can ask for.
-	readonly property int cuantas: 4
+	readonly property int maxRoutes: 4
 
-	// Cada entrada: { trip, minutos, metros, peaje, autopista, ferri, tierra,
-	//                 cumple, aviso, resumen }
-	property var rutas: []
-	readonly property bool hay: estado === "listo" && rutas.length > 0
+	// Cada entry: { trip, minutes, meters, toll, motorway, ferry, unpaved,
+	//                 complies, warning, summary }
+	property var routes: []
+	readonly property bool exists: status === "ready" && routes.length > 0
 
-	readonly property bool hayFiltros: evitarPeajes || evitarAutopistas
-		|| evitarFerris || evitarTierra
+	readonly property bool hasFilters: avoidTolls || avoidMotorways
+		|| avoidFerries || avoidUnpaved
 
-	signal listo()
+	signal ready()
 
 	// --- request ------------------------------------------------------------
 
-	property var _servidor: null   // set by whoever uses us: the effective Route.servidor
-	property string servidorLocal: "http://127.0.0.1:8554"
-	property string servidorPublico: "https://valhalla1.openstreetmap.de/route"
-	property bool hayLocal: false
+	property var _server: null   // set by whoever uses us: the effective Route.server
+	property string localServer: "http://127.0.0.1:8554"
+	property string publicServer: "https://valhalla1.openstreetmap.de/route"
+	property bool hasLocal: false
 	// The same order as in Route.qml, and for the same reasons: the internet is in charge
 	// while there is any because it sees this week's closures, and the phone answers
 	// when there is none. See the long comment there.
-	property bool hayRed: app.hayRed
-	readonly property bool _primeroFuera: hayRed || !hayLocal
-	readonly property string agente: "PocoNav/1.0 (postmarketOS; personal use)"
-	property string idioma: "es-ES"
+	property bool hasNetwork: app.hasNetwork
+	readonly property bool _outsideFirst: hasNetwork || !hasLocal
+	readonly property string userAgent: "PocoNav/1.0 (postmarketOS; personal use)"
+	property string language: "es-ES"
 	// Same treatment as in Route: it is requested in the driver's units and
 	// converted to metres on the way in.
-	property bool millas: false
-	readonly property real _aMetros: millas ? 1609.344 : 1000
+	property bool miles: false
+	readonly property real _toMeters: miles ? 1609.344 : 1000
 
 	property var _a: null
 	property var _b: null
-	property var _crudoA: null
-	property var _crudoB: null
+	property var _rawA: null
+	property var _rawB: null
 
-	function planificar(desde, aDonde, nombre) {
-		if (!desde || !aDonde)
+	function planRoutes(begin, dest, name) {
+		if (!begin || !dest)
 			return
-		cancelar()
+		cancel()
 
-		origen = desde
-		destino = aDonde
-		nombreDestino = nombre || ""
-		estado = "pidiendo"
-		fallo = ""
-		rutas = []
-		_crudoA = null
-		_crudoB = null
+		origin = begin
+		destination = dest
+		destinationName = name || ""
+		status = "pidiendo"
+		failure = ""
+		routes = []
+		_rawA = null
+		_rawB = null
 
 		// With the user's filters.
-		_a = _pedir(_consulta(true), function (r) {
-			plan._crudoA = r
-			plan._quizaTerminar()
-		}, function (porque) {
+		_a = _request(_query(true), function (r) {
+			plan._rawA = r
+			plan._maybeFinish()
+		}, function (why) {
 			// If the compliant one fails, there is nothing to show even if the other
 			// arrives: it would be offering only routes the user does not want.
 			//
 			// The reason is written BEFORE the state, and not the other way round: whoever
-			// listens to estadoChanged runs at once, and if the state changes
+			// listens to statusChanged runs at once, and if the state changes
 			// first it reads a still-empty reason. The self-test said
 			// literally "FAIL plan: " with nothing after it.
-			plan.fallo = porque
-			plan.estado = "error"
+			plan.failure = why
+			plan.status = "error"
 		})
 
-		if (hayFiltros) {
-			_b = _pedir(_consulta(false), function (r) {
-				plan._crudoB = r
-				plan._quizaTerminar()
+		if (hasFilters) {
+			_b = _request(_query(false), function (r) {
+				plan._rawB = r
+				plan._maybeFinish()
 			}, function () {
 				// The alternatives that break rules are a bonus. Their failing must
 				// not cost the good route.
-				plan._crudoB = { trip: null }
-				plan._quizaTerminar()
+				plan._rawB = { trip: null }
+				plan._maybeFinish()
 			})
 		}
 	}
@@ -135,25 +135,25 @@ QtObject {
 	// network retry creates a new request: keeping only the first,
 	// changing destination while the retry was in flight let a response
 	// from the previous trip arrive and be drawn as if it were the new one's.
-	property var _vivas: []
+	property var _inFlight: []
 
-	function cancelar() {
-		for (var i = 0; i < _vivas.length; ++i)
-			_vivas[i].abort()
-		_vivas = []
+	function cancel() {
+		for (var i = 0; i < _inFlight.length; ++i)
+			_inFlight[i].abort()
+		_inFlight = []
 		_a = null
 		_b = null
 	}
 
-	function _consulta(conFiltros) {
+	function _query(withFilters) {
 		// 0 is not "forbidden" but "only if there is no other way". A hard
 		// ban can answer that there is no route, and whoever asked to avoid tolls
 		// still wants to arrive.
-		const c = conFiltros
+		const c = withFilters
 		return {
 			locations: [
-				{ lat: origen.latitude, lon: origen.longitude },
-				{ lat: destino.latitude, lon: destino.longitude }
+				{ lat: origin.latitude, lon: origin.longitude },
+				{ lat: destination.latitude, lon: destination.longitude }
 			],
 			costing: "auto",
 			// Three alternatives per request. With the two requests up to
@@ -161,17 +161,17 @@ QtObject {
 			alternates: 3,
 			costing_options: {
 				auto: {
-					use_tolls: (c && evitarPeajes) ? 0.0 : 0.5,
-					use_highways: (c && evitarAutopistas) ? 0.0 : 0.5,
-					use_ferry: (c && evitarFerris) ? 0.0 : 0.5,
-					use_tracks: (c && evitarTierra) ? 0.0 : 0.5
+					use_tolls: (c && avoidTolls) ? 0.0 : 0.5,
+					use_highways: (c && avoidMotorways) ? 0.0 : 0.5,
+					use_ferry: (c && avoidFerries) ? 0.0 : 0.5,
+					use_tracks: (c && avoidUnpaved) ? 0.0 : 0.5
 				}
 			},
-			directions_options: { language: idioma, units: millas ? "miles" : "kilometers" }
+			directions_options: { language: language, units: miles ? "miles" : "kilometers" }
 		}
 	}
 
-	// `enCasa` says who it is asked of, and it is separated from the rest so it can
+	// `atHome` says who it is asked of, and it is separated from the rest so it can
 	// RETRY over the network without rebuilding the query -- like in Route.qml.
 	//
 	// Without that retry the planner gave up as soon as the home server
@@ -185,160 +185,160 @@ QtObject {
 	//   Murcia -> Andorra   1443 ms on the phone   (663 km, crosses two regions)
 	//   Murcia -> Paris       15 ms   400 "No suitable edges near location"
 	// The second is the one now re-requested over the network.
-	function _pedir(consulta, alSalir, alFallar, enCasa, yaReintentado) {
-		if (enCasa === undefined)
-			enCasa = !_primeroFuera
+	function _request(query, onOk, onFail, atHome, alreadyRetried) {
+		if (atHome === undefined)
+			atHome = !_outsideFirst
 		const x = new XMLHttpRequest()
-		const url = (enCasa ? servidorLocal + "/route" : servidorPublico)
-			+ "?json=" + encodeURIComponent(JSON.stringify(consulta))
+		const url = (atHome ? localServer + "/route" : publicServer)
+			+ "?json=" + encodeURIComponent(JSON.stringify(query))
 		// Like in Route.qml: if the first cannot, the other is tried
 		// ONCE, and only if the other exists.
-		const hayOtro = enCasa ? true : hayLocal
+		const hasOther = atHome ? true : hasLocal
 		x.onreadystatechange = function () {
 			if (x.readyState !== XMLHttpRequest.DONE)
 				return
 			if (x.status !== 200) {
-				if (hayOtro && !yaReintentado) {
+				if (hasOther && !alreadyRetried) {
 					// The flags are NOT touched: this trip leaves the downloaded
 					// maps or this server is down now, but the next one
 					// may be inside. Turning them off here would send
 					// all the remaining routes of the session the same way.
-					plan._pedir(consulta, alSalir, alFallar, !enCasa, true)
+					plan._request(query, onOk, onFail, !atHome, true)
 					return
 				}
-				alFallar(x.status === 0 ? qsTr("no connection to the routing server")
+				onFail(x.status === 0 ? qsTr("no connection to the routing server")
 					: qsTr("the routing server responded %1").arg(x.status))
 				return
 			}
 			try {
-				alSalir(JSON.parse(x.responseText))
+				onOk(JSON.parse(x.responseText))
 			} catch (e) {
 				// A 200 with garbage inside counts as a failure: the other
 				// is tried just as with an error code.
-				if (hayOtro && !yaReintentado) {
-					plan._pedir(consulta, alSalir, alFallar, !enCasa, true)
+				if (hasOther && !alreadyRetried) {
+					plan._request(query, onOk, onFail, !atHome, true)
 					return
 				}
-				alFallar(qsTr("I could not understand the server response"))
+				onFail(qsTr("I could not understand the server response"))
 			}
 		}
 		x.open("GET", url)
-		x.setRequestHeader("User-Agent", agente)
+		x.setRequestHeader("User-Agent", userAgent)
 		x.send()
-		_vivas.push(x)
+		_inFlight.push(x)
 		return x
 	}
 
 	// --- merge and sort -----------------------------------------------------
 
-	function _quizaTerminar() {
-		if (estado !== "pidiendo")
+	function _maybeFinish() {
+		if (status !== "pidiendo")
 			return
-		if (!_crudoA || (hayFiltros && !_crudoB))
+		if (!_rawA || (hasFilters && !_rawB))
 			return
-		_montar()
+		_assemble()
 	}
 
 	// Pulls the list of trips out of a response: the main one and its alternatives.
-	function _viajes(respuesta) {
-		if (!respuesta || !respuesta.trip)
+	function _trips(response) {
+		if (!response || !response.trip)
 			return []
-		const fuera = [respuesta.trip]
-		const alt = respuesta.alternates || []
+		const out = [response.trip]
+		const alt = response.alternates || []
 		for (var i = 0; i < alt.length; ++i)
 			if (alt[i].trip)
-				fuera.push(alt[i].trip)
-		return fuera
+				out.push(alt[i].trip)
+		return out
 	}
 
 	// Two routes are "the same" if they match in distance and time when rounded.
 	// The two requests almost always return some duplicate, and showing the
 	// same route twice with different labels would be absurd.
-	function _clave(t) {
+	function _key(t) {
 		return Math.round(t.summary.length * 10) + "/" + Math.round(t.summary.time)
 	}
 
-	function _montar() {
-		const vistos = {}
-		const lista = []
+	function _assemble() {
+		const seen = {}
+		const items = []
 
-		function anyadir(t, deLosQueCumplen) {
-			const k = _clave(t)
-			if (vistos[k])
+		function add(t, fromCompliant) {
+			const k = _key(t)
+			if (seen[k])
 				return
-			vistos[k] = true
+			seen[k] = true
 
 			const s = t.summary
-			const peaje = s.has_toll === true
-			const autopista = s.has_highway === true
-			const ferri = s.has_ferry === true
+			const toll = s.has_toll === true
+			const motorway = s.has_highway === true
+			const ferry = s.has_ferry === true
 
 			// What it breaks, of what the user asked to avoid.
-			const roto = []
-			if (evitarPeajes && peaje) roto.push("peaje")
-			if (evitarAutopistas && autopista) roto.push("autopista")
-			if (evitarFerris && ferri) roto.push("ferri")
+			const broken = []
+			if (avoidTolls && toll) broken.push("toll")
+			if (avoidMotorways && motorway) broken.push("motorway")
+			if (avoidFerries && ferry) broken.push("ferry")
 
 			// Dirt by elimination: it comes from the relaxed group and no flag
 			// explains it, so the filter it breaks can only be that one.
-			const tierra = !deLosQueCumplen && evitarTierra && roto.length === 0
-			if (tierra) roto.push("tierra")
+			const unpaved = !fromCompliant && avoidUnpaved && broken.length === 0
+			if (unpaved) broken.push("unpaved")
 
-			lista.push({
+			items.push({
 				trip: t,
-				minutos: Math.round(s.time / 60),
-				metros: s.length * _aMetros,
-				peaje: peaje,
-				autopista: autopista,
-				ferri: ferri,
-				tierra: tierra,
-				cumple: deLosQueCumplen && roto.length === 0,
-				aviso: roto,
-				resumen: _porDonde(t)
+				minutes: Math.round(s.time / 60),
+				meters: s.length * _toMeters,
+				toll: toll,
+				motorway: motorway,
+				ferry: ferry,
+				unpaved: unpaved,
+				complies: fromCompliant && broken.length === 0,
+				warning: broken,
+				summary: _viaWhich(t)
 			})
 		}
 
-		const cumplen = _viajes(_crudoA)
-		for (var i = 0; i < cumplen.length; ++i)
-			anyadir(cumplen[i], true)
-		const otras = _viajes(_crudoB)
-		for (var j = 0; j < otras.length; ++j)
-			anyadir(otras[j], false)
+		const compliant = _trips(_rawA)
+		for (var i = 0; i < compliant.length; ++i)
+			add(compliant[i], true)
+		const others = _trips(_rawB)
+		for (var j = 0; j < others.length; ++j)
+			add(others[j], false)
 
 		// First the ones that respect your criteria, and within each group the one that
 		// gets you there soonest. A toll one never comes on top if you asked to avoid them.
-		lista.sort(function (a, b) {
-			if (a.cumple !== b.cumple)
-				return a.cumple ? -1 : 1
-			return a.minutos - b.minutos
+		items.sort(function (a, b) {
+			if (a.complies !== b.complies)
+				return a.complies ? -1 : 1
+			return a.minutes - b.minutes
 		})
 
-		rutas = lista.slice(0, cuantas)
-		estado = "listo"
-		listo()
+		routes = items.slice(0, maxRoutes)
+		status = "ready"
+		ready()
 	}
 
 	// "via A-30 and RM-2": the named roads you spend the most time on. Without
 	// this, four rows that differ by only two minutes are
 	// indistinguishable.
-	function _porDonde(t) {
-		const porVia = {}
-		const piernas = t.legs || []
-		for (var i = 0; i < piernas.length; ++i) {
-			const ms = piernas[i].maneuvers || []
+	function _viaWhich(t) {
+		const byRoad = {}
+		const legs = t.legs || []
+		for (var i = 0; i < legs.length; ++i) {
+			const ms = legs[i].maneuvers || []
 			for (var j = 0; j < ms.length; ++j) {
-				const nombres = ms[j].street_names
-				if (!nombres || !nombres.length)
+				const names = ms[j].street_names
+				if (!names || !names.length)
 					continue
-				const v = String(nombres[0])
-				porVia[v] = (porVia[v] || 0) + (ms[j].time || 0)
+				const v = String(names[0])
+				byRoad[v] = (byRoad[v] || 0) + (ms[j].time || 0)
 			}
 		}
-		const orden = Object.keys(porVia).sort(function (a, b) {
-			return porVia[b] - porVia[a]
+		const order = Object.keys(byRoad).sort(function (a, b) {
+			return byRoad[b] - byRoad[a]
 		})
-		if (!orden.length)
+		if (!order.length)
 			return ""
-		return qsTr("via %1").arg(orden.slice(0, 2).join(qsTr(" and ")))
+		return qsTr("via %1").arg(order.slice(0, 2).join(qsTr(" and ")))
 	}
 }

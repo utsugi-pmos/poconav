@@ -25,138 +25,138 @@
 // honest, it does not force compiling Qt by hand and the write is immediate
 // (measured).
 //
-// If one day a connector with Spanish appeared, `hayEspanol` sets itself to true
+// If one day a connector with Spanish appeared, `hasSpanish` sets itself to true
 // and the voice comes out through Qt without touching anything else.
 import QtQuick
 import QtTextToSpeech
 
 TextToSpeech {
-	id: voz
+	id: voice
 
-	property bool activa: true
+	property bool active: true
 	// If Qt could speak Spanish, Qt would be used. Today it cannot.
-	property bool hayEspanol: false
+	property bool hasSpanish: false
 
 	// The fallback output: whoever listens to this takes care of saying it.
-	signal hablar(string frase)
+	signal speakOut(string phrase)
 
 	// Which maneuver has already been announced, and at which of the two moments.
 	// Without this it would repeat the same phrase on every GPS fix, that is once
 	// per second.
-	property int _avisada: -1
-	property int _dicha: -1
+	property int _warned: -1
+	property int _said: -1
 	// The maneuver in which "continue for N" was already said.
-	property int _continuada: -1
+	property int _continued: -1
 
 	volume: 1.0
 
-	Component.onCompleted: elegirVoz()
-	onEngineChanged: _buscarEspanol()
+	Component.onCompleted: pickVoice()
+	onEngineChanged: _findSpanish()
 
-	function elegirVoz() {
+	function pickVoice() {
 		// speechd is the one that brings the real languages; flite is the default
 		// one and only has English. Changing engine re-enumerates the languages,
 		// so this goes first.
-		const motores = availableEngines()
-		if (motores.indexOf("speechd") >= 0 && engine !== "speechd")
+		const engines = availableEngines()
+		if (engines.indexOf("speechd") >= 0 && engine !== "speechd")
 			engine = "speechd"
 		else
-			_buscarEspanol()
+			_findSpanish()
 	}
 
-	function _buscarEspanol() {
-		hayEspanol = false
-		const idiomas = availableLocales()
+	function _findSpanish() {
+		hasSpanish = false
+		const languages = availableLocales()
 		// es_ES is preferred if present; if not, any Spanish will do: a different
 		// accent is understood, an English voice is not.
-		for (var i = 0; i < idiomas.length; ++i) {
-			if (idiomas[i].name.indexOf("es_ES") === 0) {
-				locale = idiomas[i]
-				hayEspanol = true
+		for (var i = 0; i < languages.length; ++i) {
+			if (languages[i].name.indexOf("es_ES") === 0) {
+				locale = languages[i]
+				hasSpanish = true
 				return
 			}
 		}
-		for (var j = 0; j < idiomas.length; ++j) {
-			if (idiomas[j].name.indexOf("es") === 0) {
-				locale = idiomas[j]
-				hayEspanol = true
+		for (var j = 0; j < languages.length; ++j) {
+			if (languages[j].name.indexOf("es") === 0) {
+				locale = languages[j]
+				hasSpanish = true
 				return
 			}
 		}
 	}
 
-	function decir(texto) {
-		if (!activa || !texto)
+	function speak(text) {
+		if (!active || !text)
 			return
-		if (hayEspanol) {
+		if (hasSpanish) {
 			// Cut off whatever it was saying, do not queue: in a car the new
 			// instruction always overrides the old one, and a queue ends up
 			// talking about a junction you have already passed.
 			if (state === TextToSpeech.Speaking)
 				stop()
-			say(texto)
+			say(text)
 			return
 		}
-		hablar(texto)
+		speakOut(text)
 	}
 
 	// On changing route what was said must be forgotten, or the first maneuver of
 	// the new route would go unannounced for having the same index.
-	function reiniciar() {
-		_avisada = -1
-		_dicha = -1
-		_continuada = -1
+	function reset() {
+		_warned = -1
+		_said = -1
+		_continued = -1
 	}
 
-	// SHUT UP NOW. Not the same as 'reiniciar': that forgets what was said, and
+	// SHUT UP NOW. Not the same as 'reset': that forgets what was said, and
 	// this cuts off what is playing. On cancelling a route both are needed, or the
 	// speaker carries on with an instruction from a trip that no longer exists.
-	signal callar()
-	function silenciar() {
-		if (hayEspanol && state === TextToSpeech.Speaking)
+	signal stopSpeaking()
+	function silence() {
+		if (hasSpanish && state === TextToSpeech.Speaking)
 			stop()
-		reiniciar()
-		callar()
+		reset()
+		stopSpeaking()
 	}
 
 	// Called on every GPS fix. Two announcements per maneuver: one from far off
 	// so you can change lane, and another right on top of the junction.
-	function seguir(ruta, velocidad) {
-		if (!activa || !ruta || !ruta.hay)
+	function follow(route, speed) {
+		if (!active || !route || !route.exists)
 			return
-		const siguiente = ruta.maniobra + 1
-		if (siguiente >= ruta.maniobras.length)
+		const next = route.maneuver + 1
+		if (next >= route.maneuvers.length)
 			return
 
 		// The distances scale with speed: at 120 km/h, 350 m is ten seconds and
 		// arrives late; in the city, 900 m is three junctions early and you would
 		// not know which one it means.
-		const rapido = velocidad > 22        // ~80 km/h
-		const lejos = rapido ? 900 : 350
-		const cerca = rapido ? 250 : 110
+		const fast = speed > 22        // ~80 km/h
+		const far = fast ? 900 : 350
+		const near = fast ? 250 : 110
 
 		// "Continue for three kilometres", on entering the stretch. Only if the
 		// stretch is long: saying it every two hundred metres in the city would be
 		// a parrot. Valhalla already writes the phrase.
-		const actual = ruta.maniobras[ruta.maniobra]
-		if (_continuada !== ruta.maniobra) {
-			_continuada = ruta.maniobra
-			if (actual && actual.luego && actual.metros > 1200)
-				decir(actual.luego)
+		const current = route.maneuvers[route.maneuver]
+		if (_continued !== route.maneuver) {
+			_continued = route.maneuver
+			if (current && current.afterwards && current.meters > 1200)
+				speak(current.afterwards)
 		}
 
-		const m = ruta.maniobras[siguiente]
-		const d = ruta.metrosHastaManiobra
+		const m = route.maneuvers[next]
+		const d = route.metersToManeuver
 
-		if (_avisada !== siguiente && d <= lejos && d > cerca) {
-			decir(m.aviso || m.dilo)
-			_avisada = siguiente
+		if (_warned !== next && d <= far && d > near) {
+			speak(m.warning || m.spoken)
+			_warned = next
 		}
-		if (_dicha !== siguiente && d <= cerca) {
-			decir(m.dilo)
-			_dicha = siguiente
+		if (_said !== next && d <= near) {
+			speak(m.spoken)
+			_said = next
 			// The far-off alert no longer applies even if it was never given.
-			_avisada = siguiente
+			_warned = next
 		}
 	}
 }

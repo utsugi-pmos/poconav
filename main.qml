@@ -44,79 +44,79 @@ QQC2.ApplicationWindow {
 	// on this phone it is white: any gap a panel does not paint shows up
 	// white, with text meant for a dark background on top. This is what made
 	// the planner come out with invisible letters.
-	color: root.p.fondo
+	color: root.p.surface
 
 	// "explorar" -> just the map. "vista" -> a route drawn, not started yet.
-	// "conducir" -> the driving panel, and the screen held awake.
-	property string modo: "explorar"
-	readonly property bool apaisado: width > height
+	// "drive" -> the driving panel, and the screen held awake.
+	property string mode: "explorar"
+	readonly property bool landscape: width > height
 
 	// --- where the position comes from ---------------------------------------
 	// From the GPS, or the simulator when it is on. EVERYTHING that needs to know
 	// where you are goes through here and not through 'gps' directly: if every place
 	// asked the GPS on its own, simulating would mean patching twenty spots and
 	// forgetting three.
-	readonly property bool simulando: simulador.corriendo
+	readonly property bool simulating: simulator.running
 
-	readonly property var coord: simulando
-		? simulador.donde : gps.position.coordinate
-	readonly property real velocidad: simulando ? simulador.velocidad
+	readonly property var coord: simulating
+		? simulator.where : gps.position.coordinate
+	readonly property real speed: simulating ? simulator.speed
 		: (gps.position.speedValid ? gps.position.speed : -1)
-	readonly property bool rumboValido: simulando || gps.position.directionValid
-	readonly property real rumboFuente: simulando
-		? simulador.rumbo : gps.position.direction
+	readonly property bool headingValid: simulating || gps.position.directionValid
+	readonly property real headingSource: simulating
+		? simulator.heading : gps.position.direction
 
-	readonly property bool hayPosicion: simulando
+	readonly property bool hasPosition: simulating
 		|| (gps.position.latitudeValid && gps.position.longitudeValid)
 	// While simulating there is no measurement error to show: it is set to zero so the
 	// status pill does not say "network position" over a made-up car.
-	readonly property int precision: simulando ? 0
+	readonly property int precision: simulating ? 0
 		: (gps.position.horizontalAccuracyValid
 			? Math.round(gps.position.horizontalAccuracy) : -1)
 	// Anything this coarse did not come from a satellite. GeoClue falls back to
 	// the network without saying so, and that fallback has been measured here
-	// at 25 km -- see setup/ajustes/mapas. Guessing from the accuracy is the
+	// at 25 km -- see setup/settings/maps. Guessing from the accuracy is the
 	// only way to tell, because GeoClue does not report which source it used.
-	readonly property bool porRed: precision > 500
+	readonly property bool byNetwork: precision > 500
 	// 2,8 m/s is 10 km/h. MEASURED: parked, with the phone still on a table,
 	// GeoClue reports speeds of a couple of m/s often enough that a walking
 	// pace threshold turned the map to a random heading and -- because the
 	// bearing is deliberately never reset -- left it there. Below this, the
 	// reported course is noise.
-	readonly property bool enMarcha: root.velocidad > 2.8
+	readonly property bool moving: root.speed > 2.8
 
 	// Whether the map sticks to you. Dragging it by hand means "leave it where
 	// I put it"; the crosshair button hands control back.
-	property bool seguir: true
+	property bool follow: true
 
 	// Where you sit on the map while driving: horizontally centred in the map
 	// column, and a little BELOW its middle, so most of the screen is the road
 	// ahead of you rather than the road behind.
-	readonly property real anclaY: root.apaisado ? 0.66 : 0.70
+	readonly property real anchorY: root.landscape ? 0.66 : 0.70
 
 	// The only two margins of the floating interface. Before, each thing carried
 	// its own -- 2.2 units here, 2.4 there, largeSpacing over yonder --
 	// and the corners did not line up with each other. A single pair of numbers and everything
 	// falls on the same grid.
-	readonly property int borde: Math.round(Kirigami.Units.largeSpacing * 1.5)
-	readonly property int hueco: Kirigami.Units.largeSpacing
+	readonly property int edge: Math.round(Kirigami.Units.largeSpacing * 1.5)
+	readonly property int gap: Kirigami.Units.largeSpacing
 
 	// The phone has no magnetometer and no accelerometer exposed today -- the
 	// only IIO devices are the PMIC's ADCs -- so this stays false and the
 	// button that uses it stays off. The day the sensor appears, it turns true
 	// on its own and nothing else has to change.
-	readonly property bool sensorDisponible: brujula.connectedToBackend
-	readonly property bool orientarPorSensor: memoria.orientacion === "sensor"
-		&& sensorDisponible
+	readonly property bool sensorAvailable: compass.connectedToBackend
+	readonly property bool orientBySensor: memory.orientation === "sensor"
+		&& sensorAvailable
 
 	// If the heading is being driven by something -- the compass, or the car's motion --
 	// turning with your fingers does nothing: the binding puts it back in place on the
 	// next frame. The gesture only makes sense when nobody is in charge.
-	readonly property bool rumboLibre: !orientarPorSensor
-		&& !(modo === "conducir" && enMarcha && rumboValido)
+	readonly property bool freeHeading: !orientBySensor
+		&& !(mode === "drive" && moving && headingValid)
 		// Not while choosing a route either: there north is fixed by the application and turning with
 		// your fingers would only fight the binding that puts it back to zero.
-		&& modo !== "planificar"
+		&& mode !== "planRoutes"
 
 	// Every colour and radius in the application. See Theme.qml for why the
 	// look is Google Maps' and why it does not follow the desktop theme.
@@ -124,15 +124,15 @@ QQC2.ApplicationWindow {
 
 	// --- day or night -------------------------------------------------------
 	Sun {
-		id: sol
-		donde: root.hayPosicion ? root.coord : null
+		id: sun
+		where: root.hasPosition ? root.coord : null
 	}
 
 	// In "auto", night when the sun has already set WHERE YOU ARE. Without
 	// a position it cannot be known, and then it is not made up: it stays day,
 	// which is the state the application always looks good in.
-	readonly property bool esNoche: memoria.tema === "dark"
-		|| (memoria.tema === "auto" && sol.sabemos && sol.esDeNoche)
+	readonly property bool nightMode: memory.theme === "dark"
+		|| (memory.theme === "auto" && sun.known && sun.isNight)
 
 	// THE TILE UNDERNEATH, and whether we have it downloaded.
 	//
@@ -142,22 +142,22 @@ QQC2.ApplicationWindow {
 	// the Murcia tile downloaded and the map opened where it was closed, in Valencia,
 	// the 110 tiles it asked for answered 204 and the screen came out BLANK, without
 	// a single line saying why.
-	readonly property string cuadroAqui: {
+	readonly property string boxHere: {
 		if (!coord)
 			return ""
-		const c = app.cuadrosDe(coord.latitude, coord.longitude, 0)
+		const c = app.boxesAt(coord.latitude, coord.longitude, 0)
 		return c.length ? c[0] : ""
 	}
-	readonly property bool dibujoAqui: cuadroAqui !== ""
-		&& ruta.cuadrosDibujo.indexOf(cuadroAqui) >= 0
+	readonly property bool drawingHere: boxHere !== ""
+		&& route.drawingBoxes.indexOf(boxHere) >= 0
 
 	// What it is drawn with. 'maplibre' ONLY where there is a downloaded tile; 'osm' everywhere
 	// else, which at least draws while there is coverage.
-	readonly property bool dibujoLocal: ruta.dibujoLocal && dibujoAqui
+	readonly property bool localDrawing: route.localDrawing && drawingHere
 
 	// And the bad case: neither tile nor network. Here nothing can be drawn, and it has to be
 	// SAID -- a silent blank map looks like the application is broken.
-	readonly property bool mapaImposible: !dibujoAqui && !app.hayRed
+	readonly property bool mapImpossible: !drawingHere && !app.hasNetwork
 
 	// THE TILES THE ROUTE CROSSES, and which of them are missing.
 	//
@@ -169,29 +169,29 @@ QQC2.ApplicationWindow {
 	// and a tile is 300 km a side, so one in every twenty does not skip
 	// any -- and even so the endpoints are always added, which is where a
 	// coarse sampling drops the last tile.
-	readonly property var cuadrosRuta: {
-		const p = ruta.puntos
+	readonly property var routeBoxes: {
+		const p = route.points
         if (!p || p.length < 2)
 			return []
-		const vistos = {}
-		const fuera = []
-		function anota(c) {
-			const lista = app.cuadrosDe(c.latitude, c.longitude, 0)
-			if (!lista.length || vistos[lista[0]])
+		const seen = {}
+		const out = []
+		function note(c) {
+			const items = app.boxesAt(c.latitude, c.longitude, 0)
+			if (!items.length || seen[items[0]])
 				return
-			vistos[lista[0]] = true
-			fuera.push(lista[0])
+			seen[items[0]] = true
+			out.push(items[0])
 		}
 		for (var i = 0; i < p.length; i += 20)
-			anota(p[i])
-		anota(p[p.length - 1])
-		return fuera
+			note(p[i])
+		note(p[p.length - 1])
+		return out
 	}
 	// The same for the route being LOOKED AT in the planner, which has not
-	// been adopted yet: there the line lives in the plan, not in 'ruta'.
-	readonly property var cuadrosQueFaltanDelPlan: {
-		const r = planificador.rutas
-		const i = panelRutas.elegida
+	// been adopted yet: there the line lives in the plan, not in 'route'.
+	readonly property var planMissingBoxes: {
+		const r = planner.routes
+		const i = routesPanel.picked
 		if (!r || i < 0 || i >= r.length)
 			return []
 		// The rectangle Valhalla returns with the route. The planner stores the
@@ -201,21 +201,21 @@ QQC2.ApplicationWindow {
 		const s = r[i].trip && r[i].trip.summary
 		if (!s || s.min_lat === undefined)
 			return []
-		const todos = app.cuadrosDelRectangulo(s.min_lat, s.min_lon,
+		const all = app.boxesInRectangle(s.min_lat, s.min_lon,
 			s.max_lat, s.max_lon)
-		const fuera = []
-		for (var k = 0; k < todos.length; ++k)
-			if (ruta.cuadrosDibujo.indexOf(todos[k]) < 0)
-				fuera.push(todos[k])
-		return fuera
+		const out = []
+		for (var k = 0; k < all.length; ++k)
+			if (route.drawingBoxes.indexOf(all[k]) < 0)
+				out.push(all[k])
+		return out
 	}
 
-	readonly property var cuadrosQueFaltan: {
-		const fuera = []
-		for (var i = 0; i < cuadrosRuta.length; ++i)
-			if (ruta.cuadrosDibujo.indexOf(cuadrosRuta[i]) < 0)
-				fuera.push(cuadrosRuta[i])
-		return fuera
+	readonly property var routeMissingBoxes: {
+		const out = []
+		for (var i = 0; i < routeBoxes.length; ++i)
+			if (route.drawingBoxes.indexOf(routeBoxes[i]) < 0)
+				out.push(routeBoxes[i])
+		return out
 	}
 
 	// The window sets the singleton and the whole interface reads it at once.
@@ -227,8 +227,8 @@ QQC2.ApplicationWindow {
 	// say which the other one is.
 	Binding {
 		target: Theme
-		property: "noche"
-		value: root.esNoche
+		property: "night"
+		value: root.nightMode
 	}
 
 	// --- kilometres or miles -------------------------------------------------
@@ -236,33 +236,33 @@ QQC2.ApplicationWindow {
 	// information lives: Qt knows en_US measures in miles and es_ES in kilometres. It is
 	// more reliable than guessing it from the country of the position, because someone carrying
 	// the phone in British English drives in miles even when travelling.
-	readonly property bool millas: memoria.unidades === "millas"
-		|| (memoria.unidades === "auto"
+	readonly property bool miles: memory.units === "miles"
+		|| (memory.units === "auto"
 			&& Qt.locale().measurementSystem !== Locale.MetricSystem)
 
 	// White circular buttons with a blue glyph, like the ones on the map
-	// everybody already has. `azulado` fills the whole button instead, which is
+	// everybody already has. `filled` fills the whole button instead, which is
 	// how the follow button says it is on.
 	//
 	// Declared here and not next to the buttons: an inline component has to sit
 	// at the top level of its file.
-	component BotonMapa: QQC2.AbstractButton {
+	component MapButton: QQC2.AbstractButton {
 		id: bm
-		property string icono: ""
+		property string icon: ""
 		// For the buttons whose meaning is a word, not a picture -- "3D" says
 		// it in two characters and no glyph would say it better.
-		property string texto: ""
-		property bool azulado: false
-		property int lado: Kirigami.Units.gridUnit * 3.2
+		property string caption: ""
+		property bool filled: false
+		property int side: Kirigami.Units.gridUnit * 3.2
 
-		implicitWidth: lado
-		implicitHeight: lado
+		implicitWidth: side
+		implicitHeight: side
 
 		background: Rectangle {
 			radius: height / 2
-			color: bm.azulado
-				? (bm.pressed ? root.p.azulCasco : root.p.azul)
-				: (bm.pressed ? "#e8eaed" : root.p.blanco)
+			color: bm.filled
+				? (bm.pressed ? root.p.blueCasing : root.p.blue)
+				: (bm.pressed ? "#e8eaed" : root.p.white)
 			opacity: bm.enabled ? 1 : 0.5
 		}
 
@@ -271,18 +271,18 @@ QQC2.ApplicationWindow {
 				anchors.centerIn: parent
 				width: Math.round(parent.width * 0.62)
 				height: width
-				visible: bm.texto.length === 0
-				source: bm.icono
+				visible: bm.caption.length === 0
+				source: bm.icon
 				isMask: true
-				color: bm.azulado ? root.p.blanco : root.p.azul
+				color: bm.filled ? root.p.white : root.p.blue
 			}
 			QQC2.Label {
 				anchors.centerIn: parent
-				visible: bm.texto.length > 0
-				text: bm.texto
+				visible: bm.caption.length > 0
+				text: bm.caption
 				font.bold: true
 				font.pointSize: Kirigami.Theme.defaultFont.pointSize * 1.05
-				color: bm.azulado ? root.p.blanco : root.p.azul
+				color: bm.filled ? root.p.white : root.p.blue
 			}
 		}
 	}
@@ -290,39 +290,39 @@ QQC2.ApplicationWindow {
 	// Everything visible hangs off this one item. A window's own contentItem is
 	// built in C++ and cannot be handed to grabToImage ("item has no QML
 	// engine"), so having a QML-made root is what lets the application
-	// photograph itself -- see Portraits.qml and `poconav --retratos`.
-	readonly property alias lienzo: lienzo
+	// photograph itself -- see Portraits.qml and `poconav --portraits`.
+	readonly property alias canvas: canvas
 
 	// GeoClue reports accuracy 0 here as often as it reports a real figure, and
 	// 0 means "no estimate", not "perfect". Printing "±0 m" would be inventing
 	// a number, so when there is none the app just does not print one.
-	readonly property string margen: precision <= 0 ? ""
+	readonly property string margin: precision <= 0 ? ""
 		: (precision < 1000 ? precision + " m"
 			: (precision / 1000).toFixed(1) + " km")
 
-	readonly property string estado: {
+	readonly property string status: {
 		if (gps.sourceError === PositionSource.AccessError)
 			return qsTr("Location denied")
 		if (gps.sourceError !== PositionSource.NoError || !gps.valid)
 			return qsTr("No position source")
-		if (!hayPosicion)
+		if (!hasPosition)
 			return qsTr("Searching for GPS…")
-		if (porRed)
-			return qsTr("Network position · ±%1").arg(margen)
-		return margen ? qsTr("GPS · ±%1").arg(margen) : qsTr("GPS fixed")
+		if (byNetwork)
+			return qsTr("Network position · ±%1").arg(margin)
+		return margin ? qsTr("GPS · ±%1").arg(margin) : qsTr("GPS fixed")
 	}
 
-	readonly property string detalle: {
+	readonly property string detail: {
 		if (gps.sourceError === PositionSource.AccessError)
 			return qsTr("turn it on in quick settings")
 		if (gps.sourceError !== PositionSource.NoError || !gps.valid)
 			return qsTr("did you apply the 'gps' setting?")
-		if (!hayPosicion)
-			return frio.running ? qsTr("from cold it takes ~40 s")
+		if (!hasPosition)
+			return cold.running ? qsTr("from cold it takes ~40 s")
 				: qsTr("indoors it may never fix")
-		if (porRed)
+		if (byNetwork)
 			return qsTr("this is not GPS: it is an estimate")
-		if (simulando)
+		if (simulating)
 			return "simulating the journey"
 		return root.coord.latitude.toFixed(5) + ", "
 			+ root.coord.longitude.toFixed(5)
@@ -338,7 +338,7 @@ QQC2.ApplicationWindow {
 	// navigating, whether there were home tiles -- no longer: that is asked of the backend
 	// by calling it, which is what it exists for.
 	Settings {
-		id: memoria
+		id: memory
 		location: StandardPaths.writableLocation(StandardPaths.ConfigLocation)
 			+ "/poconav.conf"
 		property real lat: 40.4168
@@ -346,48 +346,48 @@ QQC2.ApplicationWindow {
 		property real zoom: 15
 		// The route itself, so a crash or a reboot halfway to somewhere is not
 		// the end of the journey. JSON, with the polyline still encoded.
-		property string rutaGuardada: ""
-		// Saved destinations, as JSON: [{nombre, lat, lon}].
-		property string favoritos: "[]"
-		property bool evitarPeajes: false
-		property bool evitarAutopistas: false
-		property bool evitarFerris: false
-		property bool evitarTierra: false
-		// "norte" or "sensor".
-		property string orientacion: "norte"
-		property bool tresD: false
-		property bool voz: true
+		property string savedRoute: ""
+		// Saved destinations, as JSON: [{name, lat, lon}].
+		property string favorites: "[]"
+		property bool avoidTolls: false
+		property bool avoidMotorways: false
+		property bool avoidFerries: false
+		property bool avoidUnpaved: false
+		// "north" or "sensor".
+		property string orientation: "north"
+		property bool threeD: false
+		property bool voice: true
 		// The last region written in the settings, so you do not have to
 		// type it again when you come back.
 		property string region: ""
 		// "light", "dark" or "auto" (by the time of sunset where you are).
-		property string tema: "auto"
-		// "auto" (by the system language), "km" or "millas".
-		property string unidades: "auto"
+		property string theme: "auto"
+		// "auto" (by the system language), "km" or "miles".
+		property string units: "auto"
 	}
 
 	Voice {
-		id: voz
-		activa: memoria.voz
+		id: voice
+		active: memory.voice
 		// This used to write the phrase into the settings file and an outside
 		// script read it every 0.3 s. Now it is told to the backend and that is it: the
 		// phrase arrives whole, without filtering characters so it does not end up on a
 		// command line, and without waiting for the next polling round.
-		onHablar: (frase) => app.decir(frase)
-		onCallar: app.callar()
+		onSpeakOut: (phrase) => app.speak(phrase)
+		onStopSpeaking: app.stopSpeaking()
 	}
 
 	Compass {
-		id: brujula
+		id: compass
 		// Asking a sensor that is not there costs nothing, but asking one that
 		// IS there costs battery, so it only runs when it is being used.
-		active: root.orientarPorSensor
+		active: root.orientBySensor
 		// The more often the reading arrives, the less the animation has to make up
 		// between one and the next. 20 Hz is more than enough and does not show in battery.
 		dataRate: 20
 		onReadingChanged: {
 			if (reading)
-				root.suavizarRumbo(reading.azimuth)
+				root.updateHeading(reading.azimuth)
 		}
 	}
 
@@ -398,7 +398,7 @@ QQC2.ApplicationWindow {
 	// Exponential filter, not a moving average: it keeps no history, responds
 	// instantly to a real turn and crushes the jitter. At 0.25 the map follows
 	// the hand with no perceptible lag.
-	property real rumboSuave: 0
+	property real smoothHeading: 0
 
 	// THE LAST GOOD HEADING, held while driving.
 	//
@@ -416,17 +416,17 @@ QQC2.ApplicationWindow {
 	// 'ssc-proximity'. They are documented and working in
 	// tasks/016-accelerometer-and-sensors.md.
 	//
-	// If 'sensorDisponible' comes out false, what to check is whether
+	// If 'sensorAvailable' comes out false, what to check is whether
 	// 'hexagonrpcd-adsp-sensorspd' is running -- not whether the phone has the sensor.
-	property real rumboRetenido: 0
+	property real heldHeading: 0
 
 	// The position, interpolated. The GPS gives one fix per second, and fed raw
 	// that means jumps of several metres: the map slid with its animation
-	// but the marker stuck to the data, so it jumped OVER the zonaMapa.item.
+	// but the marker stuck to the data, so it jumped OVER the mapArea.item.
 	// Now both come from here and move together.
-	property var posSuave: QtPositioning.coordinate(0, 0)
+	property var smoothPos: QtPositioning.coordinate(0, 0)
 
-	Behavior on posSuave {
+	Behavior on smoothPos {
 		// LINEAR and the same duration as the GPS interval, on purpose.
 		// With a smooth curve each segment slows at the end and starts at the beginning
 		// of the next, and a second later slows again: that shows up as
@@ -437,29 +437,29 @@ QQC2.ApplicationWindow {
 		}
 	}
 
-	onPosSuaveChanged: {
-		if (!root.seguir || !root.hayPosicion)
+	onSmoothPosChanged: {
+		if (!root.follow || !root.hasPosition)
 			return
-		if (root.modo === "conducir")
-			zonaMapa.item.alignCoordinateToPoint(root.posSuave,
-				Qt.point(zonaMapa.width / 2, zonaMapa.height * root.anclaY))
+		if (root.mode === "drive")
+			mapArea.item.alignCoordinateToPoint(root.smoothPos,
+				Qt.point(mapArea.width / 2, mapArea.height * root.anchorY))
 		else
-			zonaMapa.item.center = root.posSuave
+			mapArea.item.center = root.smoothPos
 	}
 
 	// When the compass is turned off, the map returns to north. Without this it stayed stuck
 	// on the sensor's last heading, which is one of the most disorienting things
 	// a map can do: you turn off rotation and it stays skewed, with nothing to
 	// explain it. It does not apply while driving, where the course over ground is in charge.
-	onOrientarPorSensorChanged: {
-		if (!orientarPorSensor && modo !== "conducir")
-			zonaMapa.item.bearing = 0
+	onOrientBySensorChanged: {
+		if (!orientBySensor && mode !== "drive")
+			mapArea.item.bearing = 0
 	}
 
-	function suavizarRumbo(crudo) {
+	function updateHeading(raw) {
 		// The short way round. Without this, going from 359 to 1 degree gives a jump of
 		// 358 and the map does a full spin in place.
-		var d = crudo - rumboSuave
+		var d = raw - smoothHeading
 		while (d > 180)
 			d -= 360
 		while (d < -180)
@@ -468,21 +468,21 @@ QQC2.ApplicationWindow {
 		// the map vibrate permanently.
 		if (Math.abs(d) < 0.5)
 			return
-		rumboSuave = (rumboSuave + d * 0.25 + 360) % 360
+		smoothHeading = (smoothHeading + d * 0.25 + 360) % 360
 	}
 
 	// The screen is held awake WHILE DRIVING and only then: going off
 	// halfway there leaves the phone useless, but never going off drains the
 	// battery with the map forgotten in your pocket.
-	onModoChanged: {
-		app.mantenerPantalla(modo === "conducir")
+	onModeChanged: {
+		app.keepScreenOn(mode === "drive")
 		// North up to choose a route. Here too and not only when planning, in case
 		// the map was rebuilt by a theme change and the saved camera brought back
 		// the old heading.
-		if (modo === "planificar" && zonaMapa.item)
-			zonaMapa.item.bearing = 0
+		if (mode === "planRoutes" && mapArea.item)
+			mapArea.item.bearing = 0
 	}
-	Component.onDestruction: app.mantenerPantalla(false)
+	Component.onDestruction: app.keepScreenOn(false)
 
 	// Saved on a heartbeat rather than on close: this process gets killed by
 	// SIGTERM often enough that onClosing cannot be trusted.
@@ -492,22 +492,22 @@ QQC2.ApplicationWindow {
 	// NEVER elapsed and the map remembered nothing at all -- measured, the file
 	// still held the factory default of Madrid after a whole journey.
 	Timer {
-		id: guardar
+		id: save
 		interval: 5000
 		running: true
 		repeat: true
 		onTriggered: {
-			memoria.lat = zonaMapa.item.center.latitude
-			memoria.lon = zonaMapa.item.center.longitude
-			memoria.zoom = zonaMapa.item.zoomLevel
+			memory.lat = mapArea.item.center.latitude
+			memory.lon = mapArea.item.center.longitude
+			memory.zoom = mapArea.item.zoomLevel
 		}
 	}
 
 	// Only there to change the hint once waiting stops being normal.
 	Timer {
-		id: frio
+		id: cold
 		interval: 60000
-		running: !root.hayPosicion
+		running: !root.hasPosition
 	}
 
 	PositionSource {
@@ -518,47 +518,47 @@ QQC2.ApplicationWindow {
 		// focus is lost would be worse, because coming back would cost a fresh
 		// search. Hence a minute of grace -- and none of that applies while
 		// driving, which is what the first clause says.
-		active: root.modo === "conducir"
-			|| Qt.application.state === Qt.ApplicationActive || gracia.running
+		active: root.mode === "drive"
+			|| Qt.application.state === Qt.ApplicationActive || grace.running
 		updateInterval: 1000
 
 		// While simulating, the GPS is not in charge: a real point would arrive every second and
 		// would fight the made-up car, jumping between the two.
-		onPositionChanged: if (!root.simulando) root.avanzar(position.coordinate)
+		onPositionChanged: if (!root.simulating) root.advanceTo(position.coordinate)
 	}
 
 	// A single place where movement enters, whether from the GPS or the
 	// simulator. This used to live inside the GPS handler and that is why simulating
 	// would have meant duplicating it.
-	function avanzar(donde) {
-		if (!root.hayPosicion || !donde)
+	function advanceTo(where) {
+		if (!root.hasPosition || !where)
 			return
-		ruta.situar(donde)
-		if (root.modo === "conducir")
-			voz.seguir(ruta, root.velocidad > 0 ? root.velocidad : 0)
-		// The rest is done by onPosSuaveChanged: here it only gives the destination to the
+		route.locate(where)
+		if (root.mode === "drive")
+			voice.follow(route, root.speed > 0 ? root.speed : 0)
+		// The rest is done by onSmoothPosChanged: here it only gives the destination to the
 		// interpolation. The map and the marker both come from there, so they stay
 		// together instead of each at its own pace.
-		root.posSuave = donde
+		root.smoothPos = where
 	}
 
 	// --- the simulator ------------------------------------------------------
 	Simulator {
-		id: simulador
-		ruta: ruta
-		onDondeChanged: if (corriendo) root.avanzar(donde)
-		onLlegado: root.terminar()
+		id: simulator
+		route: route
+		onWhereChanged: if (running) root.advanceTo(where)
+		onArrived: root.endTrip()
 	}
 
-	function simular() {
-		if (!ruta.hay)
+	function simulate() {
+		if (!route.exists)
 			return
-		root.conducir()
-		simulador.empezar()
+		root.drive()
+		simulator.start()
 	}
 
 	Timer {
-		id: gracia
+		id: grace
 		interval: 60000
 		// Running from the start on purpose. Whether a freshly mapped window
 		// reports itself as active depends on the compositor, and under
@@ -572,9 +572,9 @@ QQC2.ApplicationWindow {
 		target: Qt.application
 		function onStateChanged() {
 			if (Qt.application.state === Qt.ApplicationActive)
-				gracia.stop()
+				grace.stop()
 			else
-				gracia.restart()
+				grace.restart()
 		}
 	}
 
@@ -582,168 +582,168 @@ QQC2.ApplicationWindow {
 	// planner uses them to know WHAT each alternative breaks, and the route
 	// to recalculate the same way if you go off it.
 	Planner {
-		id: planificador
-		millas: root.millas
-		evitarPeajes: memoria.evitarPeajes
-		evitarAutopistas: memoria.evitarAutopistas
-		evitarFerris: memoria.evitarFerris
-		evitarTierra: memoria.evitarTierra
-		hayLocal: ruta.hayLocal
-		idioma: ruta.idioma
+		id: planner
+		miles: root.miles
+		avoidTolls: memory.avoidTolls
+		avoidMotorways: memory.avoidMotorways
+		avoidFerries: memory.avoidFerries
+		avoidUnpaved: memory.avoidUnpaved
+		hasLocal: route.hasLocal
+		language: route.language
 
 		// The first in the list previews itself. Showing the list with the
 		// map empty would force you to touch something before seeing anything.
-		onListo: {
-			panelRutas.elegida = 0
-			root.previsualizar(0)
+		onReady: {
+			routesPanel.picked = 0
+			root.preview(0)
 		}
 	}
 
 	Route {
-		id: ruta
-		millas: root.millas
-		evitarPeajes: memoria.evitarPeajes
-		evitarAutopistas: memoria.evitarAutopistas
+		id: route
+		miles: root.miles
+		avoidTolls: memory.avoidTolls
+		avoidMotorways: memory.avoidMotorways
 
-		onEstadoChanged: {
+		onStatusChanged: {
 			// Saved the moment it exists, not when you set off: the useful
 			// case is calculating it at home with WiFi and driving away.
-			if (estado === "lista")
-				memoria.rutaGuardada = paraGuardar()
+			if (status === "items")
+				memory.savedRoute = serialize()
 			// Only when the route arrives on its own -- one restored at
 			// startup. Coming from the planner the screen is already the list, and
 			// jumping to the preview would close it mid-choice.
-			if (estado === "lista" && root.modo === "explorar") {
-				root.modo = "vista"
+			if (status === "items" && root.mode === "explorar") {
+				root.mode = "vista"
 				// Following has to stop or the very next fix re-centres the
 				// map on you and throws the framing away -- which is exactly
 				// what happened: the far end of the route was off screen and
 				// the destination flag with it.
-				root.seguir = false
-				root.encuadrarRuta()
+				root.follow = false
+				root.frameRoute()
 			}
 		}
 	}
 
-	function pedirRuta(destino, nombre) {
-		if (!root.hayPosicion) {
+	function requestRoute(destination, name) {
+		if (!root.hasPosition) {
 			// It used to just `return`, so choosing a destination with no fix
 			// did nothing at all and said nothing at all.
-			ruta.fallar(qsTr("I do not know where you are yet; wait for the GPS"))
+			route.failWith(qsTr("I do not know where you are yet; wait for the GPS"))
 			return
 		}
 		// No longer ONE route is asked for: several are asked for and the driver decides. The
 		// planning screen is the normal step between searching and driving.
-		root.modo = "planificar"
-		root.seguir = false
-		planificador.planificar(root.coord, destino, nombre)
+		root.mode = "planRoutes"
+		root.follow = false
+		planner.planRoutes(root.coord, destination, name)
 	}
 
-	// --- what `--retratos` uses --------------------------------------------
+	// --- what `--portraits` uses --------------------------------------------
 	// These are the same doors the buttons use, not a separate path: if a
 	// portrait comes out odd, the screen really is odd.
-	function cerrarTodo() {
-		buscador.visible = false
-		panelAjustes.visible = false
-		avisoFiltro.visible = false
+	function closeAll() {
+		finder.visible = false
+		settingsPanel.visible = false
+		filterWarning.visible = false
 	}
-	function abrirBuscador() { buscador.abrir() }
+	function openFinder() { finder.open() }
 
-	// Only for --retratos: the search box WITH RESULTS inside. It is the only
+	// Only for --portraits: the search box WITH RESULTS inside. It is the only
 	// screen the portraits could not build, because it needs typing.
-	function buscarEnRetrato(texto) {
-		buscador.abrir()
-		buscador.campo.text = texto
-		buscador.buscar()
+	function searchInPortrait(text) {
+		finder.open()
+		finder.field.text = text
+		finder.search()
 	}
 
-	// Only for --retratos: with no filter set no route breaks anything, and
+	// Only for --portraits: with no filter set no route breaks anything, and
 	// the warning dialog cannot be portrayed because it never comes to exist.
-	function ponerFiltroPeajes(v) { memoria.evitarPeajes = v }
+	function setTollFilter(v) { memory.avoidTolls = v }
 
-	// Only for --retratos: where the button column actually ends. The
+	// Only for --portraits: where the button column actually ends. The
 	// portraits showed them cut off at the bottom and a number was needed, not
 	// an impression.
-	function medirBotonera() {
-		return Math.round(botonera.y) + " height=" + Math.round(botonera.height)
-			+ " end=" + Math.round(botonera.y + botonera.height)
-			+ " map=" + Math.round(zonaMapa.item.y + zonaMapa.height)
+	function measureButtons() {
+		return Math.round(buttonColumn.y) + " height=" + Math.round(buttonColumn.height)
+			+ " end=" + Math.round(buttonColumn.y + buttonColumn.height)
+			+ " map=" + Math.round(mapArea.item.y + mapArea.height)
 	}
-	function abrirAjustes() { panelAjustes.abrir() }
+	function openSettings() { settingsPanel.open() }
 
-	function planificarDesde(origen, aDonde, nombre) {
-		root.modo = "planificar"
-		root.seguir = false
+	function planFrom(origin, dest, name) {
+		root.mode = "planRoutes"
+		root.follow = false
 		// Always north up to choose. Comparing three routes with the map turned
 		// to the car's last heading forces you to reorient before you
 		// can read them; and on a map of the whole region, "up is north"
 		// is the only thing that says anything.
-		if (zonaMapa.item)
-			zonaMapa.item.bearing = 0
-		planificador.planificar(origen, aDonde, nombre)
+		if (mapArea.item)
+			mapArea.item.bearing = 0
+		planner.planRoutes(origin, dest, name)
 	}
 
-	function mostrarAviso() {
+	function showWarning() {
 		// The first in the list that breaks something; if there is none, the last,
 		// which serves just as well for seeing how the dialog looks.
-		for (var i = 0; i < planificador.rutas.length; ++i) {
-			if (planificador.rutas[i].aviso.length > 0) {
-				root.arrancarRuta(planificador.rutas[i])
+		for (var i = 0; i < planner.routes.length; ++i) {
+			if (planner.routes[i].warning.length > 0) {
+				root.startRoute(planner.routes[i])
 				return
 			}
 		}
 	}
 
 	// A route set and driving mode, with no GPS and no car.
-	function conducirPrueba(origen, aDonde) {
-		root.modo = "explorar"
-		ruta.calcular(origen, aDonde, "Murcia")
-		esperaConducir.restart()
+	function driveTest(origin, dest) {
+		root.mode = "explorar"
+		route.compute(origin, dest, "Murcia")
+		driveWait.restart()
 	}
 
-	readonly property Timer esperaConducir: Timer {
+	readonly property Timer driveWait: Timer {
 		interval: 3000
 		// With the simulator running, not stopped: the portrait of the driving
 		// screen with the car still came out with the "Off route" warning
 		// and no speed, which is not what needs to be looked at.
-		onTriggered: if (ruta.hay) root.simular()
+		onTriggered: if (route.exists) root.simulate()
 	}
 
 	// Draws on the map the route being looked at in the list, without starting it.
-	// Route.adoptar() is used and not a separate line so the preview
+	// Route.adopt() is used and not a separate line so the preview
 	// is EXACTLY what will be driven -- same line, same maneuvers.
-	function previsualizar(indice) {
-		if (!planificador.hay || indice < 0 || indice >= planificador.rutas.length)
+	function preview(index) {
+		if (!planner.exists || index < 0 || index >= planner.routes.length)
 			return
-		ruta.adoptar(planificador.rutas[indice].trip,
-			planificador.destino, planificador.nombreDestino)
-		root.encuadrarRuta()
+		route.adopt(planner.routes[index].trip,
+			planner.destination, planner.destinationName)
+		root.frameRoute()
 	}
 
 	// Start the chosen one. If it breaks something you asked to avoid, it asks first.
-	function arrancarRuta(entrada) {
-		if (!entrada)
+	function startRoute(entry) {
+		if (!entry)
 			return
-		if (entrada.aviso.length > 0) {
+		if (entry.warning.length > 0) {
 			// The time of the best one that DOES comply, so the question says
 			// how much you gain by breaking the filter instead of just that it breaks.
-			var mejor = 0
-			for (var i = 0; i < planificador.rutas.length; ++i) {
-				if (planificador.rutas[i].cumple) {
-					mejor = planificador.rutas[i].minutos
+			var best = 0
+			for (var i = 0; i < planner.routes.length; ++i) {
+				if (planner.routes[i].complies) {
+					best = planner.routes[i].minutes
 					break
 				}
 			}
-			avisoFiltro.preguntar(entrada, mejor)
+			filterWarning.ask(entry, best)
 			return
 		}
-		root.aceptarRuta(entrada)
+		root.acceptRoute(entry)
 	}
 
-	function aceptarRuta(entrada) {
-		ruta.adoptar(entrada.trip, planificador.destino,
-			planificador.nombreDestino)
-		root.conducir()
+	function acceptRoute(entry) {
+		route.adopt(entry.trip, planner.destination,
+			planner.destinationName)
+		root.drive()
 	}
 
 	// If the home server is alive it decides where the routes come from AND WHAT
@@ -770,11 +770,11 @@ QQC2.ApplicationWindow {
 		//
 		// Measured: the application started, the server came up a few
 		// seconds later, and the log kept saying QGeoTileFetcherOsm.
-		interval: ruta.sondeoContestado ? 60000 : 3000
+		interval: route.probeAnswered ? 60000 : 3000
 		running: true
 		triggeredOnStart: true
 		repeat: true
-		onTriggered: ruta.sondearLocal()
+		onTriggered: route.probeLocal()
 	}
 
 	Component.onCompleted: {
@@ -785,46 +785,46 @@ QQC2.ApplicationWindow {
 		// with a route running, opening it again means you are still going
 		// there. A day is the cut-off -- longer than that and it is yesterday's
 		// journey, not this one.
-		if (ruta.restaurar(memoria.rutaGuardada, 24))
-			Qt.callLater(root.conducir)
+		if (route.restore(memory.savedRoute, 24))
+			Qt.callLater(root.drive)
 	}
 
-	function encuadrarRuta() {
-		// The array, not ruta.hay. MEASURED: called straight from
-		// onEstadoChanged, `hay` has not been re-evaluated yet -- QML gives no
+	function frameRoute() {
+		// The array, not route.exists. MEASURED: called straight from
+		// onStatusChanged, `exists` has not been re-evaluated yet -- QML gives no
 		// order between a binding and a signal handler that depend on the same
 		// property -- so this returned early every single time and the framing
 		// silently never happened.
-		if (!ruta.puntos || ruta.puntos.length < 2)
+		if (!route.points || route.points.length < 2)
 			return
-		var norte = -90, sur = 90, este = -180, oeste = 180
-		for (var i = 0; i < ruta.puntos.length; ++i) {
-			const p = ruta.puntos[i]
-			norte = Math.max(norte, p.latitude)
-			sur = Math.min(sur, p.latitude)
-			este = Math.max(este, p.longitude)
-			oeste = Math.min(oeste, p.longitude)
+		var north = -90, south = 90, east = -180, west = 180
+		for (var i = 0; i < route.points.length; ++i) {
+			const p = route.points[i]
+			north = Math.max(north, p.latitude)
+			south = Math.min(south, p.latitude)
+			east = Math.max(east, p.longitude)
+			west = Math.min(west, p.longitude)
 		}
 		// A margin, or the route touches the edges and both ends are
 		// unreadable.
-		const mLat = Math.max(0.002, (norte - sur) * 0.15)
-		const mLon = Math.max(0.002, (este - oeste) * 0.15)
+		const mLat = Math.max(0.002, (north - south) * 0.15)
+		const mLon = Math.max(0.002, (east - west) * 0.15)
 		// visibleRegion fits the whole Map item, and the summary bar sits on
 		// top of its lower edge. Without this the last stretch of the route
 		// hides behind the bar.
-		const tapado = (norte - sur + mLat * 2) * (previa.height
-			+ Kirigami.Units.largeSpacing * 2) / Math.max(1, zonaMapa.height)
-		zonaMapa.item.bearing = 0
-		zonaMapa.item.visibleRegion = QtPositioning.rectangle(
-			QtPositioning.coordinate(norte + mLat, oeste - mLon),
-			QtPositioning.coordinate(sur - mLat - tapado, este + mLon))
+		const covered = (north - south + mLat * 2) * (previewBar.height
+			+ Kirigami.Units.largeSpacing * 2) / Math.max(1, mapArea.height)
+		mapArea.item.bearing = 0
+		mapArea.item.visibleRegion = QtPositioning.rectangle(
+			QtPositioning.coordinate(north + mLat, west - mLon),
+			QtPositioning.coordinate(south - mLat - covered, east + mLon))
 	}
 
 	// Every good heading is noted so it can be held when stopping.
-	onRumboFuenteChanged: if (rumboValido && enMarcha) rumboRetenido = rumboFuente
+	onHeadingSourceChanged: if (headingValid && moving) heldHeading = headingSource
 
-	function conducir() {
-		voz.reiniciar()
+	function drive() {
+		voice.reset()
 		// On entering driving, the driving posture: camera tilted and map
 		// oriented. It is not decoration -- in 3D you see much more road
 		// ahead at the same zoom, and with the map turned you do not have to translate
@@ -832,15 +832,15 @@ QQC2.ApplicationWindow {
 		//
 		// They stay set on exit, on purpose: if you like them while driving, you
 		// like them. They are turned off with their own buttons.
-		memoria.tresD = true
-		if (root.sensorDisponible)
-			memoria.orientacion = "sensor"
-		root.modo = "conducir"
-		root.seguir = true
-		zonaMapa.item.zoomLevel = 17
-		if (root.hayPosicion)
-			zonaMapa.item.alignCoordinateToPoint(root.coord,
-				Qt.point(zonaMapa.width / 2, zonaMapa.height * root.anclaY))
+		memory.threeD = true
+		if (root.sensorAvailable)
+			memory.orientation = "sensor"
+		root.mode = "drive"
+		root.follow = true
+		mapArea.item.zoomLevel = 17
+		if (root.hasPosition)
+			mapArea.item.alignCoordinateToPoint(root.coord,
+				Qt.point(mapArea.width / 2, mapArea.height * root.anchorY))
 	}
 
 	// --- back to the route ------------------------------------------------
@@ -851,7 +851,7 @@ QQC2.ApplicationWindow {
 	// And with a handbrake: 25 s between recalculations. Without that, a badly
 	// mapped stretch leaves the application requesting routes in a loop from a public
 	// server, which is the way to get yourself blocked.
-	property real _ultimoRecalculo: 0
+	property real _lastRecalc: 0
 
 	// --- you have arrived -------------------------------------------------
 	// Without this the route NEVER ended: you stayed in driving mode with
@@ -859,54 +859,54 @@ QQC2.ApplicationWindow {
 	// application by hand, that is until you ran out of battery in the
 	// car park.
 	Connections {
-		target: ruta
-		function onLlegadoChanged() {
-			if (ruta.llegado && root.modo === "conducir") {
-				voz.decir("You have arrived at your destination")
-				llegada.start()
+		target: route
+		function onArrivedChanged() {
+			if (route.arrived && root.mode === "drive") {
+				voice.speak("You have arrived at your destination")
+				arrival.start()
 			}
 		}
 	}
 
 	Timer {
-		id: llegada
+		id: arrival
 		// Just enough to finish saying it before everything shuts off.
 		interval: 3500
-		onTriggered: root.terminar()
+		onTriggered: root.endTrip()
 	}
 
 	Timer {
 		interval: 8000
 		repeat: true
-		running: root.modo === "conducir" && ruta.fueraDeRuta && root.hayPosicion
+		running: root.mode === "drive" && route.offRoute && root.hasPosition
 		onTriggered: {
-			const ahora = Date.now()
-			if (ahora - root._ultimoRecalculo < 25000)
+			const now = Date.now()
+			if (now - root._lastRecalc < 25000)
 				return
-			root._ultimoRecalculo = ahora
-			voz.decir("Recalculating")
-			voz.reiniciar()
-			ruta.recalcular(root.coord)
+			root._lastRecalc = now
+			voice.speak("Recalculating")
+			voice.reset()
+			route.recompute(root.coord)
 		}
 	}
 
-	function terminar() {
+	function endTrip() {
 		// FIRST be quiet, then the rest. When cancelling a route the phrase already
 		// sent to piper keeps playing: you have left the journey and the phone
 		// tells you "turn left" with no route to refer to.
-		voz.silenciar()
-		ruta.limpiar()
-		memoria.rutaGuardada = ""
-		// It undoes what conducir() set: the camera returns to flat and the
+		voice.silence()
+		route.clear()
+		memory.savedRoute = ""
+		// It undoes what drive() set: the camera returns to flat and the
 		// map to north. The tilted view is for looking ahead of the
 		// car; stopped over the map it only distorts and hides what is up top.
-		memoria.tresD = false
-		root.modo = "explorar"
-		zonaMapa.item.bearing = 0
+		memory.threeD = false
+		root.mode = "explorar"
+		mapArea.item.bearing = 0
 	}
 
 	Item {
-		id: lienzo
+		id: canvas
 
 		anchors.fill: parent
 
@@ -915,15 +915,15 @@ QQC2.ApplicationWindow {
 		// glance a hard edge is easier to ignore than a translucent card, and
 		// nothing important ends up hidden underneath.
 		DrivingPanel {
-			id: panelConducir
+			id: drivePanel
 
-			millas: root.millas
-			visible: root.modo === "conducir"
-			ruta: ruta
-			apaisado: root.apaisado
-			velocidad: root.velocidad
-			limite: ruta.limite
-			onSalir: root.terminar()
+			miles: root.miles
+			visible: root.mode === "drive"
+			route: route
+			landscape: root.landscape
+			speed: root.speed
+			limit: route.limit
+			onExit: root.endTrip()
 
 			// Plain geometry, no anchors. MEASURED: an anchor whose binding
 			// evaluates to `undefined` is NOT cleared -- once
@@ -932,15 +932,15 @@ QQC2.ApplicationWindow {
 			// full-height and the map was squeezed to nothing (540x0).
 			x: 0
 			y: 0
-			width: root.apaisado
+			width: root.landscape
 				? Math.min(parent.width * 0.42, Kirigami.Units.gridUnit * 24)
 				: parent.width
 			// In portrait the dark strip eats a fixed 4,6 grid units of this, so
 			// 10 left the blue card too cramped to breathe. And with lanes an extra
 			// row is needed: the strip is a fixed height and the row came out
 			// cut off at the bottom.
-			height: root.apaisado ? parent.height
-				: Kirigami.Units.gridUnit * (panelConducir.conCarriles ? 15 : 12)
+			height: root.landscape ? parent.height
+				: Kirigami.Units.gridUnit * (drivePanel.withLanes ? 15 : 12)
 		}
 
 		// The list of routes to choose from. Landscape on the left, like Waze;
@@ -958,25 +958,25 @@ QQC2.ApplicationWindow {
 		// It sits over the map and does NOT cover anything useful: a narrow band at the top,
 		// the width of the text, and it disappears as soon as there is something to draw with.
 		Rectangle {
-			visible: root.mapaImposible
+			visible: root.mapImpossible
 			z: 50
-			x: Math.round((zonaMapa.width - width) / 2) + zonaMapa.x
-			y: zonaMapa.y + Kirigami.Units.gridUnit
-			width: Math.min(zonaMapa.width - Kirigami.Units.gridUnit * 2,
-				textoSinMapa.implicitWidth + Kirigami.Units.gridUnit * 2)
-			height: textoSinMapa.implicitHeight + Kirigami.Units.gridUnit
+			x: Math.round((mapArea.width - width) / 2) + mapArea.x
+			y: mapArea.y + Kirigami.Units.gridUnit
+			width: Math.min(mapArea.width - Kirigami.Units.gridUnit * 2,
+				noMapText.implicitWidth + Kirigami.Units.gridUnit * 2)
+			height: noMapText.implicitHeight + Kirigami.Units.gridUnit
 			radius: height / 2
-			color: root.p.fondoAlto
-			border.color: root.p.ambar
+			color: root.p.surfaceHigh
+			border.color: root.p.amber
 			border.width: 1
 
 			QQC2.Label {
-				id: textoSinMapa
+				id: noMapText
 				anchors.centerIn: parent
 				width: parent.width - Kirigami.Units.gridUnit * 1.5
 				horizontalAlignment: Text.AlignHCenter
 				wrapMode: Text.WordWrap
-				color: root.p.tinta
+				color: root.p.ink
 				font.pointSize: Kirigami.Theme.defaultFont.pointSize * 0.95
 				// It says WHAT is happening and WHAT to do. "No connection" alone is no use:
 				// the map of this area can be downloaded, and this is where it is downloaded.
@@ -985,37 +985,37 @@ QQC2.ApplicationWindow {
 		}
 
 		RoutesPanel {
-			id: panelRutas
+			id: routesPanel
 
-			millas: root.millas
-			visible: root.modo === "planificar"
-			plan: planificador
+			miles: root.miles
+			visible: root.mode === "planRoutes"
+			plan: planner
 
 			// The tiles missing for the route being looked at. They are
 			// computed here and not in the panel because it is the window that talks
 			// to the backend.
-			faltanCuadros: root.cuadrosQueFaltanDelPlan
-			puedeBajar: app.hayRed && !app.trabajando
-			onBajarMapaRuta: app.bajarDibujoCuadros(
-				panelAjustes.region || "europe/spain",
-				root.cuadrosQueFaltanDelPlan)
+			missingBoxes: root.planMissingBoxes
+			canDownload: app.hasNetwork && !app.busy
+			onDownloadRouteMap: app.downloadDrawingBoxes(
+				settingsPanel.region || "europe/spain",
+				root.planMissingBoxes)
 
 			x: 0
 			y: 0
-			width: root.apaisado
+			width: root.landscape
 				? Math.min(parent.width * 0.42, Kirigami.Units.gridUnit * 26)
 				: parent.width
-			height: root.apaisado ? parent.height
+			height: root.landscape ? parent.height
 				: Math.round(parent.height * 0.5)
 
-			onElegidaChanged: root.previsualizar(elegida)
-			onEmpezar: (entrada) => root.arrancarRuta(entrada)
-			onSimular: (entrada) => {
-				ruta.adoptar(entrada.trip, planificador.destino,
-					planificador.nombreDestino)
-				root.simular()
+			onPickedChanged: root.preview(picked)
+			onStart: (entry) => root.startRoute(entry)
+			onSimulate: (entry) => {
+				route.adopt(entry.trip, planner.destination,
+					planner.destinationName)
+				root.simulate()
 			}
-			onCerrar: root.terminar()
+			onClose: root.endTrip()
 		}
 
 		// THE MAP GOES INSIDE A LOADER, and it is not a structural whim.
@@ -1031,35 +1031,35 @@ QQC2.ApplicationWindow {
 		// is rebuilt -- and besides, anchoring to a Loader's child would be illegal: QML
 		// only allows anchoring to a parent or a sibling.
 		Loader {
-			id: zonaMapa
+			id: mapArea
 
-			x: root.apaisado
-				? (panelConducir.visible ? panelConducir.width
-					: (panelRutas.visible ? panelRutas.width : 0))
+			x: root.landscape
+				? (drivePanel.visible ? drivePanel.width
+					: (routesPanel.visible ? routesPanel.width : 0))
 				: 0
-			y: root.apaisado ? 0
-				: (panelConducir.visible ? panelConducir.height
-					: (panelRutas.visible ? panelRutas.height : 0))
+			y: root.landscape ? 0
+				: (drivePanel.visible ? drivePanel.height
+					: (routesPanel.visible ? routesPanel.height : 0))
 			width: parent.width - x
 			height: parent.height - y
 
-			sourceComponent: plantillaMapa
+			sourceComponent: mapTemplate
 
 			// The camera is saved before throwing away the old map and handed back
 			// to the new one. Without this, nightfall while driving would leave the map looking
 			// at the middle of nowhere, with the car off screen.
-			property var camara: null
+			property var camera: null
 
 			// Rebuild the map keeping where it was looking. TWO changes ask for it and for
 			// the same reason: both the theme and the connector are fixed when the
 			// Plugin is created and cannot be changed afterwards.
-			function rehacer() {
+			function rebuild() {
 				if (item) {
-					camara = {
-						centro: item.center,
+					camera = {
+						center: item.center,
 						zoom: item.zoomLevel,
-						rumbo: item.bearing,
-						inclinacion: item.tilt
+						heading: item.bearing,
+						tilt: item.tilt
 					}
 				}
 				active = false
@@ -1070,8 +1070,8 @@ QQC2.ApplicationWindow {
 				target: root
 				// When the first map tile is downloaded it switches from 'osm' to
 				// 'maplibre' on the fly, without closing the application.
-				function onDibujoLocalChanged() { zonaMapa.rehacer() }
-				function onEsNocheChanged() { zonaMapa.rehacer() }
+				function onLocalDrawingChanged() { mapArea.rebuild() }
+				function onNightModeChanged() { mapArea.rebuild() }
 			}
 
 			onLoaded: {
@@ -1085,21 +1085,21 @@ QQC2.ApplicationWindow {
 					"| types:", item ? item.supportedMapTypes.length : 0,
 					"| active:", item && item.activeMapType
 						? item.activeMapType.name : "none")
-				if (!camara)
+				if (!camera)
 					return
-				item.center = camara.centro
-				item.zoomLevel = camara.zoom
-				item.bearing = camara.rumbo
-				item.tilt = camara.inclinacion
+				item.center = camera.center
+				item.zoomLevel = camera.zoom
+				item.bearing = camera.heading
+				item.tilt = camera.tilt
 			}
 		}
 
 		// The map proper, in here so it can be rebuilt.
 		Component {
-			id: plantillaMapa
+			id: mapTemplate
 
 			Map {
-				id: mapa
+				id: map
 
 				// Whatever the panel leaves. Same reason as above: computed, not
 				// anchored, so switching orientation cannot leave a stale edge
@@ -1127,7 +1127,7 @@ QQC2.ApplicationWindow {
 					// The change forces the whole map to be rebuilt, and it already does: the
 					// map lives in a Loader that is recreated on a theme change, and
 					// this hooks into the same mechanism.
-					name: root.dibujoLocal ? "maplibre" : "osm"
+					name: root.localDrawing ? "maplibre" : "osm"
 
 					// We ask our server for the style, which reads it from
 					// disk and rewrites its URLs to point at itself. It carries
@@ -1135,8 +1135,8 @@ QQC2.ApplicationWindow {
 					// files, not the same one with other colours.
 					PluginParameter {
 						name: "maplibre.map.styles"
-						value: "http://127.0.0.1:8554/mapa/estilo?tema="
-							+ (root.esNoche ? "dark" : "light")
+						value: "http://127.0.0.1:8554/map/style?theme="
+							+ (root.nightMode ? "dark" : "light")
 					}
 
 				// WE DESCRIBE THE PROVIDER OURSELVES, in our own JSON.
@@ -1162,7 +1162,7 @@ QQC2.ApplicationWindow {
 				PluginParameter {
 					name: "osm.mapping.providersrepository.address"
 					value: "file:///usr/share/poconav/providers/"
-						+ (root.esNoche ? "dark" : "light")
+						+ (root.nightMode ? "dark" : "light")
 				}
 
 				// THE TILES ARE THE ONLY PIECE THAT CANNOT GO WITHOUT NETWORK, and it is worth
@@ -1213,17 +1213,17 @@ QQC2.ApplicationWindow {
 				// tiles, it is drawn by hand below instead.
 				copyrightsVisible: false
 
-				center: QtPositioning.coordinate(memoria.lat, memoria.lon)
-				zoomLevel: memoria.zoom
+				center: QtPositioning.coordinate(memory.lat, memory.lon)
+				zoomLevel: memory.zoom
 
-				// Following ALREADY comes interpolated from 'posSuave', so here
+				// Following ALREADY comes interpolated from 'smoothPos', so here
 				// it is not smoothed again: chaining two animations over the same
 				// movement only adds lag and brings back the jerk just
 				// removed. This is left only for deliberate jumps -- the
 				// centre button -- and never while you drag, or every gesture would fight
 				// an animation.
 				Behavior on center {
-					enabled: !root.seguir && !arrastre.active
+					enabled: !root.follow && !drag.active
 					CoordinateAnimation {
 						duration: 300
 						easing.type: Easing.InOutQuad
@@ -1238,21 +1238,21 @@ QQC2.ApplicationWindow {
 				// WHILE DRIVING, the course over ground -- and the last good one
 				// while stopped, instead of returning to north.
 				Binding {
-					target: mapa
+					target: map
 					property: "bearing"
-					value: (root.enMarcha && root.rumboValido)
-						? root.rumboFuente : root.rumboRetenido
-					when: root.modo === "conducir" && root.seguir
+					value: (root.moving && root.headingValid)
+						? root.headingSource : root.heldHeading
+					when: root.mode === "drive" && root.follow
 					restoreMode: Binding.RestoreNone
 				}
 
 				Binding {
-					target: mapa
+					target: map
 					property: "bearing"
-					value: root.rumboSuave
-					when: root.orientarPorSensor
-						&& root.modo !== "conducir"
-						&& root.modo !== "planificar"
+					value: root.smoothHeading
+					when: root.orientBySensor
+						&& root.mode !== "drive"
+						&& root.mode !== "planRoutes"
 					restoreMode: Binding.RestoreNone
 				}
 
@@ -1264,17 +1264,17 @@ QQC2.ApplicationWindow {
 				// forces you to reorient before you can read them, and on a map of
 				// the whole region "up is north" is the only thing that orients you.
 				Binding {
-					target: mapa
+					target: map
 					property: "bearing"
 					value: 0
-					when: root.modo === "planificar"
+					when: root.mode === "planRoutes"
 					restoreMode: Binding.RestoreNone
 				}
 
 				// 3D is just the camera leaning over. 50 degrees is as far as it
 				// can go before the horizon eats half the screen and the streets
 				// near the top become unreadable.
-				tilt: memoria.tresD ? 50 : 0
+				tilt: memory.threeD ? 50 : 0
 
 				Behavior on tilt {
 					NumberAnimation {
@@ -1294,14 +1294,14 @@ QQC2.ApplicationWindow {
 				Behavior on bearing {
 					// Almost always: it also has to animate the return to north
 					// when the compass is turned OFF, and at that instant
-					// orientarPorSensor is already false.
+					// orientBySensor is already false.
 					//
 					// But NOT while you turn with your fingers. There each delta of the
 					// gesture would start its own animation and the map would feel
 					// rubbery, chasing the hand instead of following it.
-					enabled: !pellizco.active
+					enabled: !pinch.active
 					RotationAnimation {
-						duration: (root.orientarPorSensor && root.modo !== "conducir")
+						duration: (root.orientBySensor && root.mode !== "drive")
 							? 160 : 500
 						direction: RotationAnimation.Shortest
 						easing.type: Easing.OutQuad
@@ -1313,27 +1313,27 @@ QQC2.ApplicationWindow {
 				// coloured line vanishes over a motorway of the same width, over
 				// the sea, and over a park.
 				MapPolyline {
-					visible: ruta.hay
-					path: ruta.puntos
+					visible: route.exists
+					path: route.points
 					line.width: 14
-					line.color: root.p.azulCasco
+					line.color: root.p.blueCasing
 				}
 
 				MapPolyline {
-					visible: ruta.hay
-					path: ruta.puntos
+					visible: route.exists
+					path: route.points
 					line.width: 9
-					line.color: root.p.azulClaro
+					line.color: root.p.lightBlue
 				}
 
 				MapQuickItem {
-					visible: ruta.destino !== null
-					coordinate: ruta.destino ? ruta.destino
+					visible: route.destination !== null
+					coordinate: route.destination ? route.destination
 						: QtPositioning.coordinate(0, 0)
-					anchorPoint.x: bandera.width / 2
-					anchorPoint.y: bandera.height
+					anchorPoint.x: flag.width / 2
+					anchorPoint.y: flag.height
 					sourceItem: Kirigami.Icon {
-						id: bandera
+						id: flag
 						source: "flag-red"
 						width: Kirigami.Units.iconSizes.large
 						height: width
@@ -1344,9 +1344,9 @@ QQC2.ApplicationWindow {
 				// underneath it. Hidden while driving: there it is just clutter
 				// around the only thing you care about.
 				MapCircle {
-					visible: root.hayPosicion && root.precision > 0 && !root.porRed
-						&& root.modo !== "conducir"
-					center: root.posSuave
+					visible: root.hasPosition && root.precision > 0 && !root.byNetwork
+						&& root.mode !== "drive"
+					center: root.smoothPos
 					radius: root.precision
 					color: Qt.rgba(0.26, 0.52, 0.96, 0.16)
 					border.color: Qt.rgba(0.26, 0.52, 0.96, 0.40)
@@ -1354,12 +1354,12 @@ QQC2.ApplicationWindow {
 				}
 
 				MapQuickItem {
-					visible: root.hayPosicion
-					coordinate: root.posSuave
-					anchorPoint.x: yo.width / 2
-					anchorPoint.y: yo.height / 2
+					visible: root.hasPosition
+					coordinate: root.smoothPos
+					anchorPoint.x: me.width / 2
+					anchorPoint.y: me.height / 2
 					sourceItem: Item {
-						id: yo
+						id: me
 						width: Kirigami.Units.gridUnit * 1.9
 						height: width
 
@@ -1370,23 +1370,23 @@ QQC2.ApplicationWindow {
 						// lies about the direction.
 						Rectangle {
 							anchors.centerIn: parent
-							visible: !root.enMarcha
+							visible: !root.moving
 							width: parent.width * 0.62
 							height: width
 							radius: width / 2
 							// Blue when it is the GPS, amber when it is the network
 							// guessing: the colour is the warning, not a footnote.
-							color: root.porRed ? root.p.ambar : root.p.azulClaro
-							border.color: root.p.blanco
+							color: root.byNetwork ? root.p.amber : root.p.lightBlue
+							border.color: root.p.white
 							border.width: Math.max(2, width / 6)
 						}
 
 						Canvas {
-							id: puntaYo
+							id: meArrow
 							anchors.fill: parent
-							visible: root.enMarcha
-							rotation: (root.rumboValido ? root.rumboFuente : 0)
-								- mapa.bearing
+							visible: root.moving
+							rotation: (root.headingValid ? root.headingSource : 0)
+								- map.bearing
 							onPaint: {
 								const ctx = getContext("2d")
 								ctx.reset()
@@ -1397,8 +1397,8 @@ QQC2.ApplicationWindow {
 								ctx.lineTo(w * 0.50, h * 0.70)
 								ctx.lineTo(w * 0.10, h * 0.92)
 								ctx.closePath()
-								ctx.fillStyle = root.porRed ? root.p.ambar : root.p.azulClaro
-								ctx.strokeStyle = root.p.blanco
+								ctx.fillStyle = root.byNetwork ? root.p.amber : root.p.lightBlue
+								ctx.strokeStyle = root.p.white
 								ctx.lineWidth = w * 0.10
 								ctx.lineJoin = "round"
 								ctx.fill()
@@ -1407,27 +1407,27 @@ QQC2.ApplicationWindow {
 							// A Canvas does not repaint because a colour it read
 							// changed, so the one colour that can change is
 							// watched by hand.
-							property bool aviso: root.porRed
-							onAvisoChanged: requestPaint()
+							property bool warning: root.byNetwork
+							onWarningChanged: requestPaint()
 							Component.onCompleted: requestPaint()
 						}
 					}
 				}
 
 				PinchHandler {
-					id: pellizco
+					id: pinch
 					target: null
-					property var anclaje
+					property var pinchAnchor
 					grabPermissions: PointerHandler.TakeOverForbidden
 					onActiveChanged: {
 						if (active)
-							anclaje = mapa.toCoordinate(pellizco.centroid.position,
+							pinchAnchor = map.toCoordinate(pinch.centroid.position,
 								false)
 					}
 					onScaleChanged: (delta) => {
-						mapa.zoomLevel += Math.log2(delta)
-						mapa.alignCoordinateToPoint(anclaje,
-							pellizco.centroid.position)
+						map.zoomLevel += Math.log2(delta)
+						map.alignCoordinateToPoint(pinchAnchor,
+							pinch.centroid.position)
 					}
 
 					// Turn the map with two fingers, like on any map.
@@ -1439,21 +1439,21 @@ QQC2.ApplicationWindow {
 					// this way the map turns around what you are looking at and not
 					// around the centre of the screen.
 					onRotationChanged: (delta) => {
-						if (!root.rumboLibre)
+						if (!root.freeHeading)
 							return
-						mapa.bearing -= delta
-						mapa.alignCoordinateToPoint(anclaje,
-							pellizco.centroid.position)
+						map.bearing -= delta
+						map.alignCoordinateToPoint(pinchAnchor,
+							pinch.centroid.position)
 					}
 				}
 
 				DragHandler {
-					id: arrastre
+					id: drag
 					target: null
-					onTranslationChanged: (delta) => mapa.pan(-delta.x, -delta.y)
+					onTranslationChanged: (delta) => map.pan(-delta.x, -delta.y)
 					onActiveChanged: {
 						if (active)
-							root.seguir = false
+							root.follow = false
 					}
 				}
 
@@ -1462,9 +1462,9 @@ QQC2.ApplicationWindow {
 				// where a long press is far more likely to be a hand steadying the
 				// phone than a decision.
 				TapHandler {
-					enabled: root.modo !== "conducir"
+					enabled: root.mode !== "drive"
 					longPressThreshold: 0.6
-					onLongPressed: root.pedirRuta(mapa.toCoordinate(point.position),
+					onLongPressed: root.requestRoute(map.toCoordinate(point.position),
 						"point on the map")
 				}
 
@@ -1483,47 +1483,47 @@ QQC2.ApplicationWindow {
 		// address. Here it always says, and it says it in metres. While driving
 		// it says nothing, because there the screen belongs to the next turn.
 		Rectangle {
-			id: aviso
+			id: warning
 
 			// ONLY when there is bad news: no fix, network position, or
 			// location denied. With a good GPS it says nothing -- that
 			// everything is fine is not news, and a permanent sign in the middle
 			// of the map ends up being noise you stop reading.
-			visible: root.modo !== "conducir"
-				&& (!root.hayPosicion || root.porRed
+			visible: root.mode !== "drive"
+				&& (!root.hasPosition || root.byNetwork
 					|| gps.sourceError !== PositionSource.NoError)
 			// Top right, not centred: in the centre it covered exactly what
 			// you are looking at, and in the preview it ate the destination
 			// flag.
-			anchors.right: zonaMapa.right
-			anchors.top: zonaMapa.top
-			anchors.rightMargin: root.borde
+			anchors.right: mapArea.right
+			anchors.top: mapArea.top
+			anchors.rightMargin: root.edge
 			// Plasma Mobile floats its status bar over the top of every window.
 			anchors.topMargin: Kirigami.Units.gridUnit * 2
-			width: Math.min(zonaMapa.width - root.borde * 2,
-				texto.implicitWidth + Kirigami.Units.gridUnit * 2)
-			height: texto.implicitHeight + root.borde
+			width: Math.min(mapArea.width - root.edge * 2,
+				statusColumn.implicitWidth + Kirigami.Units.gridUnit * 2)
+			height: statusColumn.implicitHeight + root.edge
 			radius: height / 2
-			color: root.p.fondo
+			color: root.p.surface
 
 			ColumnLayout {
-				id: texto
+				id: statusColumn
 				anchors.centerIn: parent
 				spacing: 0
 
 				QQC2.Label {
 					Layout.alignment: Qt.AlignHCenter
-					text: root.estado
+					text: root.status
 					font.bold: true
-					color: root.porRed ? root.p.ambar : root.p.tinta
+					color: root.byNetwork ? root.p.amber : root.p.ink
 				}
 
 				QQC2.Label {
 					Layout.alignment: Qt.AlignHCenter
 					visible: text.length > 0
-					text: root.detalle
+					text: root.detail
 					font.pointSize: Kirigami.Theme.smallFont.pointSize
-					color: root.p.tintaSuave
+					color: root.p.inkSoft
 				}
 			}
 		}
@@ -1531,21 +1531,21 @@ QQC2.ApplicationWindow {
 		// --- asking for a route ----------------------------------------------
 		// The white search pill, straight off the phone everyone already has.
 		QQC2.AbstractButton {
-			id: botonBuscar
+			id: searchButton
 
-			visible: root.modo === "explorar"
-			anchors.left: zonaMapa.left
-			anchors.bottom: zonaMapa.bottom
-			anchors.leftMargin: root.borde
-			anchors.bottomMargin: root.borde + Kirigami.Units.gridUnit
+			visible: root.mode === "explorar"
+			anchors.left: mapArea.left
+			anchors.bottom: mapArea.bottom
+			anchors.leftMargin: root.edge
+			anchors.bottomMargin: root.edge + Kirigami.Units.gridUnit
 			height: Kirigami.Units.gridUnit * 3.4
-			width: Math.min(zonaMapa.width * 0.6, Kirigami.Units.gridUnit * 20)
-			enabled: ruta.estado !== "pidiendo"
-			onClicked: buscador.abrir()
+			width: Math.min(mapArea.width * 0.6, Kirigami.Units.gridUnit * 20)
+			enabled: route.status !== "pidiendo"
+			onClicked: finder.open()
 
 			background: Rectangle {
 				radius: height / 2
-				color: botonBuscar.pressed ? "#e8eaed" : root.p.blanco
+				color: searchButton.pressed ? "#e8eaed" : root.p.white
 			}
 
 			contentItem: RowLayout {
@@ -1557,13 +1557,13 @@ QQC2.ApplicationWindow {
 					Layout.preferredHeight: Kirigami.Units.iconSizes.smallMedium
 					source: "search"
 					isMask: true
-					color: root.p.tintaSuave
+					color: root.p.inkSoft
 				}
 
 				QQC2.Label {
 					Layout.fillWidth: true
-					text: ruta.estado === "pidiendo" ? qsTr("Calculating…") : qsTr("Where to?")
-					color: root.p.tintaOscura
+					text: route.status === "pidiendo" ? qsTr("Calculating…") : qsTr("Where to?")
+					color: root.p.inkDark
 					font.pointSize: Kirigami.Theme.defaultFont.pointSize * 1.2
 					elide: Text.ElideRight
 				}
@@ -1573,25 +1573,25 @@ QQC2.ApplicationWindow {
 		// A route that fails has to say so where you are already looking, not
 		// in a log nobody is going to read from a car.
 		Rectangle {
-			visible: ruta.estado === "error"
-			anchors.centerIn: zonaMapa
-			width: Math.min(zonaMapa.width * 0.8, falloTexto.implicitWidth
+			visible: route.status === "error"
+			anchors.centerIn: mapArea
+			width: Math.min(mapArea.width * 0.8, failureText.implicitWidth
 				+ Kirigami.Units.gridUnit * 3)
-			height: falloTexto.implicitHeight + Kirigami.Units.gridUnit * 2
-			radius: root.p.radio
-			color: root.p.fondo
+			height: failureText.implicitHeight + Kirigami.Units.gridUnit * 2
+			radius: root.p.cornerRadius
+			color: root.p.surface
 
 			QQC2.Label {
-				id: falloTexto
+				id: failureText
 				anchors.centerIn: parent
 				width: parent.width - Kirigami.Units.gridUnit * 2
-				text: qsTr("No route: %1").arg(ruta.fallo)
-				color: root.p.ambar
+				text: qsTr("No route: %1").arg(route.failure)
+				color: root.p.amber
 				horizontalAlignment: Text.AlignHCenter
 				wrapMode: Text.WordWrap
 			}
 
-			TapHandler { onTapped: ruta.limpiar() }
+			TapHandler { onTapped: route.clear() }
 		}
 
 		// THE MAP OF WHERE YOU ARE GOING, offered where the journey is decided.
@@ -1604,24 +1604,24 @@ QQC2.ApplicationWindow {
 		// It only appears if one really is missing. A button that is almost always there
 		// and almost never needed ends up pressed without being read.
 		Rectangle {
-			id: bajarRuta
-			visible: root.modo === "vista" && root.cuadrosQueFaltan.length > 0
-				&& !app.trabajando && app.hayRed
-			anchors.left: previa.left
-			anchors.right: previa.right
-			anchors.bottom: previa.top
+			id: routeDownload
+			visible: root.mode === "vista" && root.routeMissingBoxes.length > 0
+				&& !app.busy && app.hasNetwork
+			anchors.left: previewBar.left
+			anchors.right: previewBar.right
+			anchors.bottom: previewBar.top
 			anchors.bottomMargin: Kirigami.Units.smallSpacing
 			height: Kirigami.Units.gridUnit * 3
-            radius: root.p.radioGrande
-			color: pulsar.pressed ? root.p.fondoAlto : root.p.fondo
-			border.color: root.p.ambar
+            radius: root.p.cornerRadiusLarge
+			color: press.pressed ? root.p.surfaceHigh : root.p.surface
+			border.color: root.p.amber
 			border.width: 1
 
 			TapHandler {
-				id: pulsar
+				id: press
 				gesturePolicy: TapHandler.DragThreshold
-				onTapped: app.bajarDibujoCuadros(panelAjustes.region || "europe/spain",
-					root.cuadrosQueFaltan)
+				onTapped: app.downloadDrawingBoxes(settingsPanel.region || "europe/spain",
+					root.routeMissingBoxes)
 			}
 
 			RowLayout {
@@ -1633,13 +1633,13 @@ QQC2.ApplicationWindow {
 				Kirigami.Icon {
 					source: "download"
 					isMask: true
-					color: root.p.ambar
+					color: root.p.amber
 					Layout.preferredWidth: Kirigami.Units.iconSizes.smallMedium
 					Layout.preferredHeight: Kirigami.Units.iconSizes.smallMedium
 				}
 				QQC2.Label {
 					Layout.fillWidth: true
-					color: root.p.tinta
+					color: root.p.ink
 					elide: Text.ElideRight
 					// THE SIZE IS STATED, not hidden. It is about 130 MB per
 					// tile -- measured: 113 MB for Valencia, 112 for Murcia
@@ -1649,27 +1649,27 @@ QQC2.ApplicationWindow {
 					// a query to the server: asking it the exact size of
 					// each would be several requests before a button could be
 					// drawn, and the order of magnitude is enough to decide.
-					text: root.cuadrosQueFaltan.length === 1
+					text: root.routeMissingBoxes.length === 1
 						? qsTr("Download the map for this route · about 130 MB")
 						: qsTr("Download the map for this route · %1 areas, about %2 MB")
-							.arg(root.cuadrosQueFaltan.length)
-							.arg(root.cuadrosQueFaltan.length * 130)
+							.arg(root.routeMissingBoxes.length)
+							.arg(root.routeMissingBoxes.length * 130)
 				}
 			}
 		}
 
 		// --- the route, before committing to it ------------------------------
 		Rectangle {
-			id: previa
+			id: previewBar
 
-			visible: root.modo === "vista"
-			anchors.left: zonaMapa.left
-			anchors.right: zonaMapa.right
-			anchors.bottom: zonaMapa.bottom
-			anchors.margins: root.borde
+			visible: root.mode === "vista"
+			anchors.left: mapArea.left
+			anchors.right: mapArea.right
+			anchors.bottom: mapArea.bottom
+			anchors.margins: root.edge
 			height: Kirigami.Units.gridUnit * 5.4
-			radius: root.p.radioGrande
-			color: root.p.fondo
+			radius: root.p.cornerRadiusLarge
+			color: root.p.surface
 
 			RowLayout {
 				anchors.fill: parent
@@ -1684,17 +1684,17 @@ QQC2.ApplicationWindow {
 					// Time in green and first: it is the number you decide with.
 					QQC2.Label {
 						Layout.fillWidth: true
-						text: panelConducir.duracion(ruta.segundosTotal)
-						color: root.p.verde
+						text: drivePanel.duration(route.totalSeconds)
+						color: root.p.green
 						font.bold: true
 						font.pointSize: Kirigami.Theme.defaultFont.pointSize * 1.8
 					}
 
 					QQC2.Label {
 						Layout.fillWidth: true
-						text: panelConducir.distancia(ruta.metrosTotal)
-							+ (ruta.nombreDestino ? "  ·  " + ruta.nombreDestino : "")
-						color: root.p.tintaSuave
+						text: drivePanel.distance(route.totalMeters)
+							+ (route.destinationName ? "  ·  " + route.destinationName : "")
+						color: root.p.inkSoft
 						elide: Text.ElideRight
 					}
 				}
@@ -1703,50 +1703,50 @@ QQC2.ApplicationWindow {
 				// other way of being kept, and that is exactly the kind of
 				// place worth keeping.
 				QQC2.AbstractButton {
-					id: botonGuardar
+					id: saveButton
 					Layout.preferredHeight: Kirigami.Units.gridUnit * 3.4
 					Layout.preferredWidth: Kirigami.Units.gridUnit * 3.4
-					enabled: ruta.destino !== null
-					onClicked: buscador.guardar(ruta.nombreDestino || "destination",
-						ruta.destino.latitude, ruta.destino.longitude)
+					enabled: route.destination !== null
+					onClicked: finder.save(route.destinationName || "destination",
+						route.destination.latitude, route.destination.longitude)
 					background: Rectangle {
 						radius: height / 2
-						color: botonGuardar.pressed ? root.p.tintaSuave : root.p.fondoAlto
+						color: saveButton.pressed ? root.p.inkSoft : root.p.surfaceHigh
 					}
 					contentItem: Kirigami.Icon {
 						source: "bookmark-new"
 						isMask: true
-						color: root.p.tinta
+						color: root.p.ink
 					}
 				}
 
 				QQC2.AbstractButton {
-					id: botonQuitar
+					id: removeButton
 					Layout.preferredHeight: Kirigami.Units.gridUnit * 3.4
 					Layout.preferredWidth: Kirigami.Units.gridUnit * 3.4
-					onClicked: root.terminar()
+					onClicked: root.endTrip()
 					background: Rectangle {
 						radius: height / 2
-						color: botonQuitar.pressed ? root.p.tintaSuave : root.p.fondoAlto
+						color: removeButton.pressed ? root.p.inkSoft : root.p.surfaceHigh
 					}
 					contentItem: Kirigami.Icon {
 						source: "dialog-close"
 						isMask: true
-						color: root.p.tinta
+						color: root.p.ink
 					}
 				}
 
 				// The blue pill: the one thing on this bar you are meant to
 				// press, so it is the only coloured thing on it.
 				QQC2.AbstractButton {
-					id: botonEmpezar
+					id: goButton
 					Layout.preferredHeight: Kirigami.Units.gridUnit * 3.4
 					Layout.preferredWidth: Kirigami.Units.gridUnit * 8.5
-					onClicked: root.conducir()
+					onClicked: root.drive()
 
 					background: Rectangle {
 						radius: height / 2
-						color: botonEmpezar.pressed ? root.p.azulCasco : root.p.azul
+						color: goButton.pressed ? root.p.blueCasing : root.p.blue
 					}
 
 					contentItem: RowLayout {
@@ -1757,11 +1757,11 @@ QQC2.ApplicationWindow {
 							Layout.preferredHeight: Kirigami.Units.iconSizes.smallMedium
 							source: "gps"
 							isMask: true
-							color: root.p.blanco
+							color: root.p.white
 						}
 						QQC2.Label {
 							text: qsTr("Start")
-							color: root.p.blanco
+							color: root.p.white
 							font.bold: true
 							font.pointSize: Kirigami.Theme.defaultFont.pointSize * 1.15
 						}
@@ -1777,18 +1777,18 @@ QQC2.ApplicationWindow {
 		// condition of the licence, not a decoration to drop when it is in the
 		// way.
 		QQC2.Label {
-			anchors.left: zonaMapa.left
-			anchors.bottom: root.modo === "vista" ? previa.top : zonaMapa.bottom
-			anchors.leftMargin: root.borde
+			anchors.left: mapArea.left
+			anchors.bottom: root.mode === "vista" ? previewBar.top : mapArea.bottom
+			anchors.leftMargin: root.edge
 			anchors.bottomMargin: Kirigami.Units.smallSpacing
 			// CARTO asks for its credit in addition to OSM's when its tiles are used.
 			// It is a condition of use, not a courtesy.
-			text: root.esNoche ? "© OpenStreetMap © CARTO" : "© OpenStreetMap"
+			text: root.nightMode ? "© OpenStreetMap © CARTO" : "© OpenStreetMap"
 			font.pointSize: Kirigami.Theme.smallFont.pointSize
-			color: root.p.blanco
+			color: root.p.white
 			opacity: 0.9
 			background: Rectangle {
-				color: root.p.fondo
+				color: root.p.surface
 				opacity: 0.7
 				radius: 4
 			}
@@ -1798,159 +1798,159 @@ QQC2.ApplicationWindow {
 
 		// --- the controls -----------------------------------------------------
 		ColumnLayout {
-			id: botonera
-			anchors.right: zonaMapa.right
-			anchors.bottom: zonaMapa.bottom
-			anchors.rightMargin: root.borde
+			id: buttonColumn
+			anchors.right: mapArea.right
+			anchors.bottom: mapArea.bottom
+			anchors.rightMargin: root.edge
 			// Clear of the search pill, the attribution and the gesture bar.
-			anchors.bottomMargin: root.modo === "vista"
-				? previa.height + root.borde * 2 : root.borde
+			anchors.bottomMargin: root.mode === "vista"
+				? previewBar.height + root.edge * 2 : root.edge
 			// A fat finger and a bump: packed together you miss them.
-			spacing: root.hueco
+			spacing: root.gap
 
 			// While driving these step back a little -- but only a little: at
 			// 0.55 the blue of the follow button washed out to nothing and it
 			// stopped reading as a button at all.
-			opacity: root.modo === "conducir" ? 0.85 : 1
+			opacity: root.mode === "drive" ? 0.85 : 1
 
 			// North up, or the map turning with the phone. Only on the
 			// initial screen: while driving the course over ground is in charge.
 			// The only voice control, and within reach while driving too: silencing it
 			// is exactly what you want to be able to do without thinking.
-			BotonMapa {
-				icono: memoria.voz ? "audio-volume-high" : "audio-volume-muted"
-				azulado: memoria.voz
+			MapButton {
+				icon: memory.voice ? "audio-volume-high" : "audio-volume-muted"
+				filled: memory.voice
 				onClicked: {
-					memoria.voz = !memoria.voz
+					memory.voice = !memory.voice
 					// When silencing it, SILENCE it: stopping sending phrases does not stop the
 					// one already out, and pressing the speaker to shut it up and have it
 					// keep talking is exactly the opposite of what you are asking for.
-					if (!memoria.voz)
-						voz.silenciar()
+					if (!memory.voice)
+						voice.silence()
 				}
 			}
 
-			BotonMapa {
-				visible: root.modo === "explorar"
-				icono: "compass"
-				azulado: root.orientarPorSensor
+			MapButton {
+				visible: root.mode === "explorar"
+				icon: "compass"
+				filled: root.orientBySensor
 				// Off, and visibly off, until the phone actually has the
 				// sensor. A toggle that silently does nothing is worse than
 				// one that admits it cannot.
-				enabled: root.sensorDisponible
-				onClicked: memoria.orientacion =
-					(memoria.orientacion === "sensor" ? "norte" : "sensor")
+				enabled: root.sensorAvailable
+				onClicked: memory.orientation =
+					(memory.orientation === "sensor" ? "north" : "sensor")
 			}
 
-			BotonMapa {
-				visible: root.modo === "explorar"
-				texto: memoria.tresD ? "2D" : "3D"
-				azulado: memoria.tresD
-				onClicked: memoria.tresD = !memoria.tresD
+			MapButton {
+				visible: root.mode === "explorar"
+				caption: memory.threeD ? "2D" : "3D"
+				filled: memory.threeD
+				onClicked: memory.threeD = !memory.threeD
 			}
 
 			// Only on the initial screen: choosing a voice or downloading a region is not
 			// something you do with the car moving, and an extra button there
 			// is a button pressed by accident.
-			BotonMapa {
-				visible: root.modo === "explorar"
-				icono: "configure"
-				onClicked: panelAjustes.abrir()
+			MapButton {
+				visible: root.mode === "explorar"
+				icon: "configure"
+				onClicked: settingsPanel.open()
 			}
 
-			BotonMapa {
+			MapButton {
 				// Hidden in landscape: there is only 540 px of height there and six
 				// stacked buttons eat the whole side. The pinch
 				// does the same, and while driving the zoom sets itself.
-				visible: root.modo !== "conducir" && !root.apaisado
-				icono: "zoom-in"
-				onClicked: zonaMapa.item.zoomLevel = Math.min(zonaMapa.item.maximumZoomLevel,
-					Math.round(zonaMapa.item.zoomLevel) + 1)
+				visible: root.mode !== "drive" && !root.landscape
+				icon: "zoom-in"
+				onClicked: mapArea.item.zoomLevel = Math.min(mapArea.item.maximumZoomLevel,
+					Math.round(mapArea.item.zoomLevel) + 1)
 			}
 
-			BotonMapa {
-				visible: root.modo !== "conducir" && !root.apaisado
-				icono: "zoom-out"
-				onClicked: zonaMapa.item.zoomLevel = Math.max(zonaMapa.item.minimumZoomLevel,
-					Math.round(zonaMapa.item.zoomLevel) - 1)
+			MapButton {
+				visible: root.mode !== "drive" && !root.landscape
+				icon: "zoom-out"
+				onClicked: mapArea.item.zoomLevel = Math.max(mapArea.item.minimumZoomLevel,
+					Math.round(mapArea.item.zoomLevel) - 1)
 			}
 
-			BotonMapa {
+			MapButton {
 				// Filled blue while the map is glued to you, white while it is
 				// not, so the mode is readable without reading anything.
-				icono: root.seguir ? "gps" : "crosshairs"
-				azulado: root.seguir
-				enabled: root.hayPosicion
+				icon: root.follow ? "gps" : "crosshairs"
+				filled: root.follow
+				enabled: root.hasPosition
 				// The one control that still has to be easy to hit while
 				// driving, so it is the biggest.
-				lado: Kirigami.Units.gridUnit * 4
+				side: Kirigami.Units.gridUnit * 4
 				onClicked: {
-					root.seguir = true
-					if (root.modo === "conducir") {
-						zonaMapa.item.zoomLevel = 17
-						zonaMapa.item.alignCoordinateToPoint(root.coord,
-							Qt.point(zonaMapa.width / 2, zonaMapa.height * root.anclaY))
+					root.follow = true
+					if (root.mode === "drive") {
+						mapArea.item.zoomLevel = 17
+						mapArea.item.alignCoordinateToPoint(root.coord,
+							Qt.point(mapArea.width / 2, mapArea.height * root.anchorY))
 					} else {
-						zonaMapa.item.center = root.coord
-						if (zonaMapa.item.zoomLevel < 15)
-							zonaMapa.item.zoomLevel = 16
+						mapArea.item.center = root.coord
+						if (mapArea.item.zoomLevel < 15)
+							mapArea.item.zoomLevel = 16
 					}
 				}
 			}
 		}
 
 		DestinationSearch {
-			id: buscador
-			millas: root.millas
-			cerca: root.hayPosicion ? root.coord : null
-			hayLocal: ruta.hayLocal
-			favoritosJson: memoria.favoritos
-			evitarPeajes: memoria.evitarPeajes
-			evitarAutopistas: memoria.evitarAutopistas
-			onElegido: (coordenada, nombre) => root.pedirRuta(coordenada, nombre)
-			onFavoritosCambiados: (json) => memoria.favoritos = json
-			onAlternarPeajes: memoria.evitarPeajes = !memoria.evitarPeajes
-			onAlternarAutopistas: memoria.evitarAutopistas = !memoria.evitarAutopistas
-			evitarFerris: memoria.evitarFerris
-			evitarTierra: memoria.evitarTierra
-			onAlternarFerris: memoria.evitarFerris = !memoria.evitarFerris
-			onAlternarTierra: memoria.evitarTierra = !memoria.evitarTierra
+			id: finder
+			miles: root.miles
+			near: root.hasPosition ? root.coord : null
+			hasLocal: route.hasLocal
+			favoritesJson: memory.favorites
+			avoidTolls: memory.avoidTolls
+			avoidMotorways: memory.avoidMotorways
+			onChosen: (coordinate, name) => root.requestRoute(coordinate, name)
+			onFavoritesChanged: (json) => memory.favorites = json
+			onToggleTolls: memory.avoidTolls = !memory.avoidTolls
+			onToggleMotorways: memory.avoidMotorways = !memory.avoidMotorways
+			avoidFerries: memory.avoidFerries
+			avoidUnpaved: memory.avoidUnpaved
+			onToggleFerries: memory.avoidFerries = !memory.avoidFerries
+			onToggleUnpaved: memory.avoidUnpaved = !memory.avoidUnpaved
 		}
 
-		// Only exists with --retratos. Without that option, it is not even created.
+		// Only exists with --portraits. Without that option, it is not even created.
 		Loader {
-			active: retratosEn !== ""
+			active: portraitsIn !== ""
 			sourceComponent: Portraits {
-				ventana: root
-				carpeta: retratosEn
-				Component.onCompleted: arrancar()
+				window: root
+				folder: portraitsIn
+				Component.onCompleted: run()
 			}
 		}
 
 		FilterWarning {
-			id: avisoFiltro
-			onAceptado: (entrada) => root.aceptarRuta(entrada)
+			id: filterWarning
+			onAccepted: (entry) => root.acceptRoute(entry)
 			// Cancel does nothing else: it stays in the list, with the route
-			// being looked at still drawn on the zonaMapa.item.
-			onCancelado: {}
+			// being looked at still drawn on the mapArea.item.
+			onCancelled: {}
 		}
 
 		Settings {
-			id: panelAjustes
-			region: memoria.region
-			onRegionChanged: memoria.region = region
-			tema: memoria.tema
-			unidades: memoria.unidades
-			esNoche: root.esNoche
-			millas: root.millas
+			id: settingsPanel
+			region: memory.region
+			onRegionChanged: memory.region = region
+			theme: memory.theme
+			units: memory.units
+			nightMode: root.nightMode
+			miles: root.miles
 			// Where the phone is, so the settings can download the map of
 			// AROUND HERE -- a 132 MB tile -- instead of the whole region, which
 			// in Spain is 1.9 GB. Without a position they are 0 and it falls back to the
 			// previous behaviour.
-			miLat: root.coord ? root.coord.latitude : 0
-			miLon: root.coord ? root.coord.longitude : 0
-			onPonerTema: (cual) => memoria.tema = cual
-			onPonerUnidades: (cual) => memoria.unidades = cual
+			myLat: root.coord ? root.coord.latitude : 0
+			myLon: root.coord ? root.coord.longitude : 0
+			onSetTheme: (which) => memory.theme = which
+			onSetUnits: (which) => memory.units = which
 		}
 
 		// When a download finishes it has to ask again: a freshly
@@ -1958,9 +1958,9 @@ QQC2.ApplicationWindow {
 		// over the network until the next startup.
 		Connections {
 			target: app
-			function onTerminado(ok, mensaje) {
+			function onTaskFinished(ok, message) {
 				if (ok)
-					ruta.sondearLocal()
+					route.probeLocal()
 			}
 		}
 	}
