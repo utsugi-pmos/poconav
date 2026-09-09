@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
 """Downloads the maps of a region to use PocoNav offline.
 
-    local-maps --listar espa          searches regions
-    local-maps --bajar europe/spain   downloads what is needed to navigate
-    local-maps --estado               what is already downloaded
+    local-maps --list espa          searches regions
+    local-maps --download europe/spain   downloads what is needed to navigate
+    local-maps --status               what is already downloaded
 
 WHY IT EXISTS, given there is a map manager in osmscout-server: its own is GRAPHICAL
 and only its own. This one can be called from a script, from the installer and from
@@ -34,20 +34,20 @@ import sys
 import tarfile
 import urllib.request
 
-SERVIDOR = "https://data.modrana.org/osm_scout_server"
-CATALOGO = SERVIDOR + "/countries_provided.json"
-AGENTE = {"User-Agent": "PocoNav/1.0 (postmarketOS; personal use)"}
+SERVER = "https://data.modrana.org/osm_scout_server"
+CATALOG = SERVER + "/countries_provided.json"
+USER_AGENT = {"User-Agent": "PocoNav/1.0 (postmarketOS; personal use)"}
 # Where it leaves the maps. By default ~/Maps, which is where they were left when this
-# was used by hand; the application always passes --destino and it decides.
+# was used by hand; the application always passes --destination and it decides.
 #
 # Each region goes in ITS folder. Extracting them all to the same place would work
 # until the day two shared a file, and then deleting one would leave the other
 # crippled without any sign.
-DESTINO = os.path.expanduser("~/Maps")
+DESTINATION = os.path.expanduser("~/Maps")
 
 # Which catalog component serves which purpose. The order matters: it is the order in
 # which they are downloaded, and it starts with what is needed to NAVIGATE.
-COMPONENTES = [
+COMPONENTS = [
     ("valhalla",         "offline routing"),
     ("geocoder_nlp",     "offline place search"),
     ("mapboxgl_country", "vector map (labels do not rotate)"),
@@ -56,144 +56,144 @@ COMPONENTES = [
 ]
 
 
-def traer(url, tiempo=60):
-    return urllib.request.urlopen(urllib.request.Request(url, headers=AGENTE), timeout=tiempo)
+def fetch(url, timeout=60):
+    return urllib.request.urlopen(urllib.request.Request(url, headers=USER_AGENT), timeout=timeout)
 
 
-def catalogo():
-    with traer(CATALOGO) as r:
+def catalog():
+    with fetch(CATALOG) as r:
         return json.load(r)
 
 
-def versiones():
+def versions():
     """The versions of each component, from the server index.
 
     They are not in the catalog: they only appear as a directory name, so they have
     to be read from there. If the server bumps a version, this notices on its own --
     which is exactly why they are not written by hand.
     """
-    with traer(SERVIDOR + "/") as r:
+    with fetch(SERVER + "/") as r:
         html = r.read(40000).decode("utf-8", "replace")
-    fuera = {}
+    out = {}
     for d in re.findall(r'href="([a-z-]+)-(\d+)/"', html):
-        fuera[d[0]] = d[1]
-    return fuera
+        out[d[0]] = d[1]
+    return out
 
 
-def listar_dir(sub):
-    with traer(SERVIDOR + sub, 90) as r:
+def list_dir(sub):
+    with fetch(SERVER + sub, 90) as r:
         html = r.read(2_000_000).decode("utf-8", "replace")
     return [h for h in re.findall(r'href="([^"]+)"', html)
             if not h.startswith("?") and h != "/" and "osm_scout" not in h]
 
 
-def listar_recursivo(sub, prefijo="", hondura=0):
+def list_recursive(sub, prefix="", depth=0):
     """All the .bz2 hanging off `sub`, with their relative path.
 
     The depth limit is not paranoia: the server index includes "up" links, and without
     a cap a naive recursion goes round in circles.
     """
-    if hondura > 4:
+    if depth > 4:
         return []
-    fuera = []
-    for h in listar_dir(sub):
+    out = []
+    for h in list_dir(sub):
         if h.endswith("/"):
-            fuera += listar_recursivo(sub + h, prefijo + h, hondura + 1)
+            out += list_recursive(sub + h, prefix + h, depth + 1)
         elif h.endswith(".bz2"):
-            fuera.append(prefijo + h)
-    return fuera
+            out.append(prefix + h)
+    return out
 
 
-def bajar(url, destino, etiqueta):
-    os.makedirs(os.path.dirname(destino), exist_ok=True)
-    if os.path.exists(destino):
-        print("   %s: was already there" % etiqueta)
-        return destino
-    parcial = destino + ".parcial"
-    with traer(url, 120) as r, open(parcial, "wb") as f:
+def download(url, destination, label):
+    os.makedirs(os.path.dirname(destination), exist_ok=True)
+    if os.path.exists(destination):
+        print("   %s: was already there" % label)
+        return destination
+    partial = destination + ".partial"
+    with fetch(url, 120) as r, open(partial, "wb") as f:
         total = int(r.headers.get("Content-Length") or 0)
-        hecho = 0
-        ultimo = -1
+        done = 0
+        last = -1
         while True:
-            trozo = r.read(256 * 1024)
-            if not trozo:
+            chunk = r.read(256 * 1024)
+            if not chunk:
                 break
-            f.write(trozo)
-            hecho += len(trozo)
+            f.write(chunk)
+            done += len(chunk)
             if total:
-                pct = hecho * 100 // total
+                pct = done * 100 // total
                 # Only when the tens digit changes: over a pipe this is a log, not a
                 # bar, and one line per 256 kB would be thousands.
-                if pct // 10 != ultimo:
-                    ultimo = pct // 10
-                    print("   %s: %d%% (%.0f MB)" % (etiqueta, pct, hecho / 1e6), flush=True)
+                if pct // 10 != last:
+                    last = pct // 10
+                    print("   %s: %d%% (%.0f MB)" % (label, pct, done / 1e6), flush=True)
                     # A separate line in a fixed format so the application can move its
                     # bar. It is mixed with the usual text on purpose: this script is
                     # still used by hand for debugging and a machines-only output would
                     # not serve for that.
-                    print("PROGRESO %d %s" % (pct, etiqueta), flush=True)
-    os.rename(parcial, destino)
-    return destino
+                    print("PROGRESS %d %s" % (pct, label), flush=True)
+    os.rename(partial, destination)
+    return destination
 
 
-def desempaquetar(comprimido, carpeta):
+def unpack(compressed, folder):
     """Leaves the content in its place and deletes the compressed file.
 
     Two forms: .tar.bz2 is extracted, and a loose .bz2 is only decompressed -- which is
     how the geocoder files come.
     """
-    os.makedirs(carpeta, exist_ok=True)
-    if comprimido.endswith(".tar.bz2"):
-        with tarfile.open(comprimido, "r:bz2") as t:
-            t.extractall(carpeta)
-    elif comprimido.endswith(".bz2"):
-        salida = os.path.join(carpeta, os.path.basename(comprimido)[:-4])
-        with bz2.open(comprimido, "rb") as e, open(salida, "wb") as s:
+    os.makedirs(folder, exist_ok=True)
+    if compressed.endswith(".tar.bz2"):
+        with tarfile.open(compressed, "r:bz2") as t:
+            t.extractall(folder)
+    elif compressed.endswith(".bz2"):
+        output = os.path.join(folder, os.path.basename(compressed)[:-4])
+        with bz2.open(compressed, "rb") as e, open(output, "wb") as s:
             while True:
-                trozo = e.read(1 << 20)
-                if not trozo:
+                chunk = e.read(1 << 20)
+                if not chunk:
                     break
-                s.write(trozo)
-    os.remove(comprimido)
+                s.write(chunk)
+    os.remove(compressed)
 
 
 # One marker per already-installed piece. It is needed because the compressed file is
 # deleted on extraction: without this, "already downloaded" was asked of a file that
 # had just disappeared, and a second pass re-downloaded the whole country.
-SELLOS = os.path.join(DESTINO, ".poconav")
+STAMPS = os.path.join(DESTINATION, ".poconav")
 
 # The boxes that have been requested, if any have been. Empty means "all", which is how
 # it always behaved and how the route download still works.
-SOLO_PAQUETES = set()
+ONLY_PACKAGES = set()
 
 
-def ya_hecho(comp, pieza):
-    return os.path.exists(os.path.join(SELLOS, "%s-%s" % (comp, pieza)))
+def already_done(comp, piece):
+    return os.path.exists(os.path.join(STAMPS, "%s-%s" % (comp, piece)))
 
 
-def marcar(comp, pieza):
-    os.makedirs(SELLOS, exist_ok=True)
-    open(os.path.join(SELLOS, "%s-%s" % (comp, pieza)), "w").close()
+def mark(comp, piece):
+    os.makedirs(STAMPS, exist_ok=True)
+    open(os.path.join(STAMPS, "%s-%s" % (comp, piece)), "w").close()
 
 
-def _entrada_global(cat, comp):
+def _global_entry(cat, comp):
     """The catalog entry that publishes a component that belongs to no country.
 
     The catalog mixes territories with global entries -- 'mapboxgl/glyphs',
     'mapboxgl/global', 'postal/global' -- and they are told apart by not being of type
     'territory'. It is searched by component and not by name so as not to keep a second
     list to maintain when the server adds another."""
-    for clave, valor in cat.items():
-        if not isinstance(valor, dict):
+    for key, value in cat.items():
+        if not isinstance(value, dict):
             continue
-        if valor.get("type") == "territory":
+        if value.get("type") == "territory":
             continue
-        if comp in valor:
-            return valor
+        if comp in value:
+            return value
     return None
 
 
-def clave_servidor(comp):
+def server_key(comp):
     """From the name in the catalog to the name of the server directory."""
     return {
         "geocoder_nlp": "geocoder-nlp",
@@ -212,20 +212,20 @@ def clave_servidor(comp):
     }[comp]
 
 
-def bajar_componente(entrada, comp, vers):
-    datos = entrada.get(comp)
-    if not datos:
+def download_component(entry, comp, vers):
+    info = entry.get(comp)
+    if not info:
         print("   %s: this region does not have it" % comp)
         return
-    raiz = clave_servidor(comp)
-    if raiz not in vers:
+    root = server_key(comp)
+    if root not in vers:
         print("   %s: the server does not publish that component" % comp)
         return
-    base = "/%s-%s/" % (raiz, vers[raiz])
+    base = "/%s-%s/" % (root, vers[root])
 
-    if "packages" in datos:
+    if "packages" in info:
         # By packages: each piece is an independent file.
-        paquetes = datos["packages"]
+        packages = info["packages"]
 
         # ONLY THE REQUESTED BOXES, if any have been requested. This is what lets you
         # download the map "around here" instead of the whole country.
@@ -234,44 +234,44 @@ def bajar_componente(entrada, comp, vers):
         # tile. "7-62-48" is the box of Murcia and surroundings, about 300 km on a
         # side, and it weighs 132 MB. Spain is 23 of those: 1.9 GB to have the country
         # and 132 MB to have where you actually drive.
-        if SOLO_PAQUETES:
-            antes = len(paquetes)
-            paquetes = [p for p in paquetes if p in SOLO_PAQUETES]
-            if not paquetes:
+        if ONLY_PACKAGES:
+            before = len(packages)
+            packages = [p for p in packages if p in ONLY_PACKAGES]
+            if not packages:
                 print("   %s: none of the %d requested boxes is in this"
-                      " region" % (comp, len(SOLO_PAQUETES)))
+                      " region" % (comp, len(ONLY_PACKAGES)))
                 return
-            print("   %s: %d of %d packages" % (comp, len(paquetes), antes))
+            print("   %s: %d of %d packages" % (comp, len(packages), before))
         else:
-            print("   %s: %d packages" % (comp, len(paquetes)))
+            print("   %s: %d packages" % (comp, len(packages)))
 
-        for i, p in enumerate(paquetes, 1):
-            if ya_hecho(comp, p):
+        for i, p in enumerate(packages, 1):
+            if already_done(comp, p):
                 continue
             # Each component names its files its own way, and guessing it wrong gives a
             # 404 per piece with the download "finishing" without having fetched
             # anything. The drawing ones are loose compressed sqlite bases --
             # 'tiles-section-7-62-48.sqlite.bz2' -- and the routing ones, tar.
             if comp.startswith("mapboxgl"):
-                nombre = "tiles-section-%s.sqlite.bz2" % p
+                name = "tiles-section-%s.sqlite.bz2" % p
                 # Into its own folder, not the root: they are loose files with a flat
                 # name, and in the root they would mix with the trees the tars bring.
-                destino_pieza = os.path.join(DESTINO, "mapboxgl")
+                destination_piece = os.path.join(DESTINATION, "mapboxgl")
             else:
-                nombre = "%s.tar.bz2" % p
+                name = "%s.tar.bz2" % p
                 # IN THE ROOT, not in the subpath: the tar already brings inside its own
                 # full "valhalla/tiles/...". Extracting it inside Maps/valhalla/packages/
                 # gave Maps/valhalla/packages/valhalla/tiles -- one folder too many, and
                 # the server found nothing. Seen in the tree after downloading half of
                 # Spain.
-                destino_pieza = DESTINO
-            sub = "%s/packages/%s" % (raiz.replace("-country", ""), nombre)
-            url = SERVIDOR + base + sub
-            local = os.path.join(DESTINO, ".descargas", "%s-%s" % (comp, nombre))
+                destination_piece = DESTINATION
+            sub = "%s/packages/%s" % (root.replace("-country", ""), name)
+            url = SERVER + base + sub
+            local = os.path.join(DESTINATION, ".descargas", "%s-%s" % (comp, name))
             try:
-                bajar(url, local, "%s %d/%d" % (comp, i, len(paquetes)))
-                desempaquetar(local, destino_pieza)
-                marcar(comp, p)
+                download(url, local, "%s %d/%d" % (comp, i, len(packages)))
+                unpack(local, destination_piece)
+                mark(comp, p)
             except Exception as e:
                 print("   %s package %s: %s" % (comp, p, e))
         return
@@ -287,16 +287,16 @@ def bajar_componente(entrada, comp, vers):
     # base -- the one that makes something show when the map is zoomed out instead of
     # nothing, because the country sections start at zoom 7.
     if comp == "mapboxgl_global":
-        raiz_srv = raiz.replace("-country", "")
-        for nombre in ("tiles-world.sqlite.bz2",):
-            if ya_hecho(comp, nombre):
+        root_srv = root.replace("-country", "")
+        for name in ("tiles-world.sqlite.bz2",):
+            if already_done(comp, name):
                 continue
-            url = SERVIDOR + base + "%s/packages/%s" % (raiz_srv, nombre)
-            local = os.path.join(DESTINO, ".descargas", nombre)
+            url = SERVER + base + "%s/packages/%s" % (root_srv, name)
+            local = os.path.join(DESTINATION, ".descargas", name)
             try:
-                bajar(url, local, "world base")
-                desempaquetar(local, os.path.join(DESTINO, "mapboxgl"))
-                marcar(comp, nombre)
+                download(url, local, "world base")
+                unpack(local, os.path.join(DESTINATION, "mapboxgl"))
+                mark(comp, name)
             except Exception as e:
                 print("   world base: %s" % e)
         return
@@ -305,24 +305,24 @@ def bajar_componente(entrada, comp, vers):
     # level: libpostal's global data hangs off four subfolders (transliteration, numex,
     # ...) and looking only at the top gave "0 files" -- with the search failing and not
     # saying why.
-    ruta = datos["path"]
+    route = info["path"]
     try:
-        ficheros = listar_recursivo(base + ruta + "/")
+        files = list_recursive(base + route + "/")
     except Exception as e:
         print("   %s: could not list (%s)" % (comp, e))
         return
-    print("   %s: %d files" % (comp, len(ficheros)))
-    for rel in ficheros:
-        url = SERVIDOR + base + ruta + "/" + rel
-        local = os.path.join(DESTINO, ruta, rel)
+    print("   %s: %d files" % (comp, len(files)))
+    for rel in files:
+        url = SERVER + base + route + "/" + rel
+        local = os.path.join(DESTINATION, route, rel)
         try:
-            bajar(url, local, "%s %s" % (comp, os.path.basename(rel)))
-            desempaquetar(local, os.path.dirname(local))
+            download(url, local, "%s %s" % (comp, os.path.basename(rel)))
+            unpack(local, os.path.dirname(local))
         except Exception as e:
             print("   %s %s: %s" % (comp, rel, e))
 
 
-def reparar():
+def repair():
     """Straightens a tree left by the version that extracted wrong.
 
     The first version extracted each .tar.bz2 INSIDE its subpath, and since the tar
@@ -334,108 +334,108 @@ def reparar():
     The data is correct; the only thing wrong is where it is. Moving it takes seconds
     and re-downloading it, a gig -- which is why this exists instead of starting over.
     """
-    malo = os.path.join(DESTINO, "valhalla", "packages", "valhalla")
-    if not os.path.isdir(malo):
+    bad = os.path.join(DESTINATION, "valhalla", "packages", "valhalla")
+    if not os.path.isdir(bad):
         print("nothing to straighten")
         return 0
-    bueno = os.path.join(DESTINO, "valhalla")
-    movidos = 0
-    for nombre in os.listdir(malo):
-        origen = os.path.join(malo, nombre)
-        destino = os.path.join(bueno, nombre)
-        if os.path.isdir(origen) and os.path.isdir(destino):
+    good = os.path.join(DESTINATION, "valhalla")
+    moved = 0
+    for name in os.listdir(bad):
+        origin = os.path.join(bad, name)
+        destination = os.path.join(good, name)
+        if os.path.isdir(origin) and os.path.isdir(destination):
             # Merge instead of overwrite: the packages spread the same tile tree across
             # many tars, so 'tiles' will already exist.
-            for raiz, _, ficheros in os.walk(origen):
-                rel = os.path.relpath(raiz, origen)
-                dd = os.path.join(destino, rel) if rel != "." else destino
+            for root, _, files in os.walk(origin):
+                rel = os.path.relpath(root, origin)
+                dd = os.path.join(destination, rel) if rel != "." else destination
                 os.makedirs(dd, exist_ok=True)
-                for f in ficheros:
-                    os.replace(os.path.join(raiz, f), os.path.join(dd, f))
-                    movidos += 1
+                for f in files:
+                    os.replace(os.path.join(root, f), os.path.join(dd, f))
+                    moved += 1
         else:
-            os.makedirs(os.path.dirname(destino), exist_ok=True)
-            os.replace(origen, destino)
-            movidos += 1
+            os.makedirs(os.path.dirname(destination), exist_ok=True)
+            os.replace(origin, destination)
+            moved += 1
     # And the markers, or the next pass would re-download everything again.
     try:
-        cat = catalogo()["europe/spain"]
+        cat = catalog()["europe/spain"]
         for p in cat.get("valhalla", {}).get("packages", []):
-            marcar("valhalla", p)
+            mark("valhalla", p)
     except Exception:
         pass
-    print("straightened %d files -> %s" % (movidos, bueno))
+    print("straightened %d files -> %s" % (moved, good))
     return 0
 
 
 def main():
     p = argparse.ArgumentParser(add_help=True)
-    p.add_argument("--listar", metavar="TEXT", nargs="?", const="")
-    p.add_argument("--bajar", metavar="REGION")
-    p.add_argument("--paquetes", metavar="BOXES",
+    p.add_argument("--list", metavar="TEXT", nargs="?", const="")
+    p.add_argument("--download", metavar="REGION")
+    p.add_argument("--packages", metavar="BOXES",
                    help="comma-separated list of zoom-7 tiles, e.g."
                         " 7-62-48; only those are downloaded. Applies to the map"
                         " drawing, which is what is distributed that way")
-    p.add_argument("--solo", metavar="COMPONENTS",
+    p.add_argument("--only", metavar="COMPONENTS",
                    help="comma-separated list; by default the navigation ones")
-    p.add_argument("--destino", metavar="PATH",
+    p.add_argument("--destination", metavar="PATH",
                    help="where to leave it; the application passes one per region")
-    p.add_argument("--estado", action="store_true")
-    p.add_argument("--reparar", action="store_true")
+    p.add_argument("--status", action="store_true")
+    p.add_argument("--repair", action="store_true")
     a = p.parse_args()
 
-    if a.reparar:
-        return reparar()
+    if a.repair:
+        return repair()
 
-    if a.paquetes:
-        global SOLO_PAQUETES
-        SOLO_PAQUETES = {c.strip() for c in a.paquetes.split(",") if c.strip()}
+    if a.packages:
+        global ONLY_PACKAGES
+        ONLY_PACKAGES = {c.strip() for c in a.packages.split(",") if c.strip()}
 
-    if a.destino:
-        global DESTINO, SELLOS
-        DESTINO = os.path.expanduser(a.destino)
-        SELLOS = os.path.join(DESTINO, ".poconav")
+    if a.destination:
+        global DESTINATION, STAMPS
+        DESTINATION = os.path.expanduser(a.destination)
+        STAMPS = os.path.join(DESTINATION, ".poconav")
 
-    if a.estado:
-        if not os.path.isdir(DESTINO):
-            print("nothing downloaded (%s does not exist)" % DESTINO)
+    if a.status:
+        if not os.path.isdir(DESTINATION):
+            print("nothing downloaded (%s does not exist)" % DESTINATION)
             return 0
         total = sum(os.path.getsize(os.path.join(r, f))
-                    for r, _, fs in os.walk(DESTINO) for f in fs)
-        print("%s: %.2f GB" % (DESTINO, total / 1e9))
-        for d in sorted(os.listdir(DESTINO)):
+                    for r, _, fs in os.walk(DESTINATION) for f in fs)
+        print("%s: %.2f GB" % (DESTINATION, total / 1e9))
+        for d in sorted(os.listdir(DESTINATION)):
             print("   %s" % d)
         return 0
 
-    cat = catalogo()
+    cat = catalog()
 
-    if a.listar is not None:
-        t = a.listar.lower()
-        hall = [k for k in sorted(cat) if t in k.lower()
+    if a.list is not None:
+        t = a.list.lower()
+        found = [k for k in sorted(cat) if t in k.lower()
                 or t in str(cat[k].get("name", "")).lower()]
-        for k in hall[:40]:
+        for k in found[:40]:
             e = cat[k]
-            tiene = [c for c, _ in COMPONENTES if c in e]
-            print("%-34s %s" % (k, ",".join(tiene)))
-        if not hall:
-            print("nothing matches %r" % a.listar)
+            has = [c for c, _ in COMPONENTS if c in e]
+            print("%-34s %s" % (k, ",".join(has)))
+        if not found:
+            print("nothing matches %r" % a.list)
         return 0
 
-    if not a.bajar:
+    if not a.download:
         p.print_help()
         return 1
 
-    if a.bajar not in cat:
-        print("I do not know the region %r; try --listar" % a.bajar)
+    if a.download not in cat:
+        print("I do not know the region %r; try --list" % a.download)
         return 1
 
-    entrada = cat[a.bajar]
-    vers = versiones()
+    entry = cat[a.download]
+    vers = versions()
     # By default, just enough to navigate: routing and search. The raster map is a gig
     # and already shows over the network, so it is not downloaded unless requested.
-    quiere = (a.solo.split(",") if a.solo else ["valhalla", "geocoder_nlp"])
-    print("downloading %s -> %s" % (a.bajar, DESTINO))
-    for comp in quiere:
+    wanted = (a.only.split(",") if a.only else ["valhalla", "geocoder_nlp"])
+    print("downloading %s -> %s" % (a.download, DESTINATION))
+    for comp in wanted:
         comp = comp.strip()
         # THERE ARE COMPONENTS THAT HANG OFF NO COUNTRY, and asking the country for them
         # is asking for them where they never are.
@@ -447,12 +447,12 @@ def main():
         # rivers and WITHOUT A SINGLE LABEL, which for driving is almost worse than
         # having no map -- you see the shape of the junction and not what the exit is
         # called.
-        donde = entrada if comp in entrada else _entrada_global(cat, comp)
-        if donde is None:
+        where = entry if comp in entry else _global_entry(cat, comp)
+        if where is None:
             print("   %s: it is neither in the region nor in the global catalog" % comp)
             continue
-        bajar_componente(donde, comp, vers)
-    print("PROGRESO 100 done", flush=True)
+        download_component(where, comp, vers)
+    print("PROGRESS 100 done", flush=True)
     print("done.")
     return 0
 

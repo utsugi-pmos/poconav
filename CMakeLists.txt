@@ -30,7 +30,7 @@ qt_add_executable(poconav
 # .qml files next to the binary can be edited by anything running as the user,
 # and a map that reroutes you is a bad thing to leave writable.
 # Theme is a singleton: you have to tell CMake, or the module registers it as
-# an ordinary type and 'Theme.azul' does not exist.
+# an ordinary type and 'Theme.blue' does not exist.
 set_source_files_properties(Theme.qml PROPERTIES QT_QML_SINGLETON_TYPE TRUE)
 
 qt_add_qml_module(poconav

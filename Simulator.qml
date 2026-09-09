@@ -10,7 +10,7 @@
 // point, so that half of the application could not be looked at.
 //
 // AT WHAT SPEED. At the one each stretch allows, not a fixed one: the route
-// already carries the legal limit point by point (ruta.limite, from
+// already carries the legal limit point by point (route.limit, from
 // trace_attributes), so the car accelerates on the motorway and brakes on
 // entering the village. A simulator at a constant 50 km/h would pass as good
 // warnings that on the motorway arrive late.
@@ -25,57 +25,57 @@ import QtPositioning
 QtObject {
 	id: sim
 
-	property var ruta: null
-	property bool corriendo: false
+	property var route: null
+	property bool running: false
 
 	// Where the car is and which way it looks. It is what the application uses
 	// instead of the GPS while this is running.
-	property var donde: QtPositioning.coordinate(0, 0)
-	property real rumbo: 0
-	property real velocidad: 0        // m/s, as the GPS gives it
+	property var where: QtPositioning.coordinate(0, 0)
+	property real heading: 0
+	property real speed: 0        // m/s, as the GPS gives it
 
 	// How many times faster than reality. At 1 the trip takes as long as it takes,
 	// which is what is needed to judge whether a warning arrives on time: sped up,
 	// everything seems to arrive late even when it is not true.
-	property real prisa: 1
+	property real haste: 1
 
 	// How far has been travelled, in metres from the start.
-	property real avance: 0
+	property real advance: 0
 
-	signal llegado()
+	signal arrived()
 
 	// If the route does not state the limit, 50: it is what applies in the place
 	// where most doubt fits, which is inside a village.
-	readonly property int limitePorDefecto: 50
+	readonly property int defaultLimit: 50
 
-	function empezar() {
-		if (!ruta || !ruta.hay)
+	function start() {
+		if (!route || !route.exists)
 			return
-		avance = 0
-		velocidad = 0
-		_colocar()
-		corriendo = true
+		advance = 0
+		speed = 0
+		_place()
+		running = true
 	}
 
-	function parar() {
-		corriendo = false
-		velocidad = 0
+	function stop() {
+		running = false
+		speed = 0
 	}
 
-	readonly property Timer reloj: Timer {
+	readonly property Timer clock: Timer {
 		// At 60 ms the simulator itself IS the smoothing: it delivers interpolated
 		// positions more often than the eye can tell apart. At 200 ms it looked
 		// jerky because each step fired a 200 ms animation that the next one cut
 		// off halfway.
 		interval: 60
 		repeat: true
-		running: sim.corriendo
-		onTriggered: sim._paso(0.06)
+		running: sim.running
+		onTriggered: sim._step(0.06)
 	}
 
-	function _paso(segundos) {
-		if (!ruta || !ruta.hay) {
-			parar()
+	function _step(seconds) {
+		if (!route || !route.exists) {
+			stop()
 			return
 		}
 
@@ -83,57 +83,57 @@ QtObject {
 		// gradually -- 2 m/s2, which is a normal car -- instead of changing all at
 		// once: a jump from 120 to 50 in one frame would make the voice warn as if
 		// it had braked hard.
-		const legal = (ruta.limite > 0 ? ruta.limite : limitePorDefecto) / 3.6
-        const dv = 2.0 * segundos
-		if (velocidad < legal)
-			velocidad = Math.min(legal, velocidad + dv)
+		const legal = (route.limit > 0 ? route.limit : defaultLimit) / 3.6
+        const dv = 2.0 * seconds
+		if (speed < legal)
+			speed = Math.min(legal, speed + dv)
 		else
-			velocidad = Math.max(legal, velocidad - dv)
+			speed = Math.max(legal, speed - dv)
 
-		avance += velocidad * segundos * prisa
+		advance += speed * seconds * haste
 
-		const total = ruta.acumulado[ruta.acumulado.length - 1]
-		if (avance >= total) {
-			avance = total
-			_colocar()
-			parar()
-			llegado()
+		const total = route.cumulative[route.cumulative.length - 1]
+		if (advance >= total) {
+			advance = total
+			_place()
+			stop()
+			arrived()
 			return
 		}
-		_colocar()
+		_place()
 	}
 
-	// Places the car `avance` metres from the start, interpolating between the two
+	// Places the car `advance` metres from the start, interpolating between the two
 	// points around it.
-	function _colocar() {
-		const acum = ruta.acumulado
-		const pts = ruta.puntos
-		if (!acum || acum.length < 2)
+	function _place() {
+		const accum = route.cumulative
+		const pts = route.points
+		if (!accum || accum.length < 2)
 			return
 
 		// Search from where we were, not from the start: this runs five times per
 		// second over routes of thousands of points.
-		var i = _ultimo
-		while (i < acum.length - 1 && acum[i + 1] < avance)
+		var i = _last
+		while (i < accum.length - 1 && accum[i + 1] < advance)
 			i += 1
-		_ultimo = i
+		_last = i
 
 		const a = pts[i]
 		const b = pts[Math.min(i + 1, pts.length - 1)]
-		const tramo = acum[Math.min(i + 1, acum.length - 1)] - acum[i]
-		const t = tramo > 0 ? (avance - acum[i]) / tramo : 0
+		const segment = accum[Math.min(i + 1, accum.length - 1)] - accum[i]
+		const t = segment > 0 ? (advance - accum[i]) / segment : 0
 
-		donde = QtPositioning.coordinate(
+		where = QtPositioning.coordinate(
 			a.latitude + (b.latitude - a.latitude) * t,
 			a.longitude + (b.longitude - a.longitude) * t)
 
 		// The heading, looking a little further ahead than the next point: between
 		// two very close points the angle dances, and the map would lurch.
-		const lejos = pts[Math.min(i + 6, pts.length - 1)]
-		if (lejos !== a)
-			rumbo = a.azimuthTo(lejos)
+		const far = pts[Math.min(i + 6, pts.length - 1)]
+		if (far !== a)
+			heading = a.azimuthTo(far)
 	}
 
-	property int _ultimo: 0
-	onCorriendoChanged: if (corriendo) _ultimo = 0
+	property int _last: 0
+	onRunningChanged: if (running) _last = 0
 }

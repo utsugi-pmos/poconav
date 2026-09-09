@@ -21,55 +21,55 @@ import QtQuick
 import QtPositioning
 
 QtObject {
-	id: sol
+	id: sun
 
 	// Where you are. Without a position no answer is possible, and it says so.
-	property var donde: null
+	property var where: null
 	// Recalculated when the day changes, not on every tick.
-	property date cuando: new Date()
+	property date when: new Date()
 
-	readonly property bool sabemos: donde !== null
-		&& donde.isValid !== false && !isNaN(_ocaso)
+	readonly property bool known: where !== null
+		&& where.isValid !== false && !isNaN(_dusk)
 
 	// The only thing looked at from outside.
-	readonly property bool esDeNoche: sabemos
-		&& (_horaAhora < _alba || _horaAhora >= _ocaso)
+	readonly property bool isNight: known
+		&& (_hourNow < _dawn || _hourNow >= _dusk)
 
 	// Decimal UTC hours.
-	readonly property real _alba: _calcular(true)
-	readonly property real _ocaso: _calcular(false)
-	readonly property real _horaAhora: cuando.getUTCHours()
-		+ cuando.getUTCMinutes() / 60
+	readonly property real _dawn: _compute(true)
+	readonly property real _dusk: _compute(false)
+	readonly property real _hourNow: when.getUTCHours()
+		+ when.getUTCMinutes() / 60
 
 	// A slow clock: night does not arrive all at once and checking it every minute
 	// is overkill. Every five, it is not noticeable and does not wake the
 	// processor for nothing.
-	property Timer _reloj: Timer {
+	property Timer _clock: Timer {
 		interval: 300000
 		repeat: true
 		running: true
-		onTriggered: sol.cuando = new Date()
+		onTriggered: sun.when = new Date()
 	}
 
 	// Returns the UTC time of civil dawn or dusk, or NaN if at this date and
 	// latitude there is neither -- which really happens: inside the polar circle
 	// there are days when the sun neither rises nor sets.
-	function _calcular(esAlba) {
-		if (!donde)
+	function _compute(isDawn) {
+		if (!where)
 			return NaN
 
-		const lat = donde.latitude
-		const lon = donde.longitude
+		const lat = where.latitude
+		const lon = where.longitude
 		const rad = Math.PI / 180
 
 		// Day of the year.
-		const inicio = new Date(Date.UTC(cuando.getUTCFullYear(), 0, 1))
-		const hoy = new Date(Date.UTC(cuando.getUTCFullYear(),
-			cuando.getUTCMonth(), cuando.getUTCDate()))
-		const n = Math.floor((hoy - inicio) / 86400000) + 1
+		const yearStart = new Date(Date.UTC(when.getUTCFullYear(), 0, 1))
+		const today = new Date(Date.UTC(when.getUTCFullYear(),
+			when.getUTCMonth(), when.getUTCDate()))
+		const n = Math.floor((today - yearStart) / 86400000) + 1
 
 		// Approximate time of the event, in days.
-		const t = n + ((esAlba ? 6 : 18) - lon / 15) / 24
+		const t = n + ((isDawn ? 6 : 18) - lon / 15) / 24
 
 		// Mean anomaly of the Sun, and its true longitude.
 		const M = (0.9856 * t) - 3.289
@@ -84,18 +84,18 @@ QtObject {
 		AR = AR / 15
 
 		// Declination.
-		const senoDec = 0.39782 * Math.sin(L * rad)
-		const cosDec = Math.cos(Math.asin(senoDec))
+		const sinDec = 0.39782 * Math.sin(L * rad)
+		const cosDec = Math.cos(Math.asin(sinDec))
 
 		// The hour angle. -0.10453 is the cosine of 96 degrees: 90 of the horizon
 		// plus the 6 of civil twilight.
-		const cosH = (-0.10453 - senoDec * Math.sin(lat * rad))
+		const cosH = (-0.10453 - sinDec * Math.sin(lat * rad))
 			/ (cosDec * Math.cos(lat * rad))
 		if (cosH > 1 || cosH < -1)
 			return NaN            // neither rises nor sets: polar night or day
 
 		var H = Math.acos(cosH) / rad
-		if (esAlba)
+		if (isDawn)
 			H = 360 - H
 		H = H / 15
 

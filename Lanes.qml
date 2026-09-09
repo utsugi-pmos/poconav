@@ -15,19 +15,19 @@ import QtQuick.Layouts
 import org.kde.kirigami as Kirigami
 
 Item {
-	id: tira
+	id: strip
 
-	// [{ sirve: bool, hacia: ["straight", "right", ...] }]
-	property var carriles: []
-	property color tinta: "#ffffff"
+	// [{ serves: bool, toward: ["straight", "right", ...] }]
+	property var lanes: []
+	property color ink: "#ffffff"
 
-	visible: carriles && carriles.length > 0
+	visible: lanes && lanes.length > 0
 	implicitHeight: Kirigami.Units.gridUnit * 2.6
 
 	// OSRM's words for a direction, turned into an angle. 0 is straight on,
 	// positive turns right.
-	function _angulo(indicacion) {
-		switch (indicacion) {
+	function _angle(indication) {
+		switch (indication) {
 		case "sharp left": return -135
 		case "left": return -90
 		case "slight left": return -40
@@ -45,54 +45,54 @@ Item {
 		spacing: Kirigami.Units.smallSpacing
 
 		Repeater {
-			model: tira.carriles
+			model: strip.lanes
 
 			Rectangle {
-				id: celda
+				id: cell
 				Layout.preferredWidth: Kirigami.Units.gridUnit * 2.2
-				Layout.preferredHeight: tira.height
+				Layout.preferredHeight: strip.height
 				radius: Kirigami.Units.smallSpacing
 				// A lane that is no use to you still has to be countable, so it
 				// keeps its box and loses its brightness.
-				color: modelData.sirve ? Qt.rgba(1, 1, 1, 0.18) : "transparent"
+				color: modelData.serves ? Qt.rgba(1, 1, 1, 0.18) : "transparent"
 				border.width: 1
-				border.color: Qt.rgba(1, 1, 1, modelData.sirve ? 0.55 : 0.18)
+				border.color: Qt.rgba(1, 1, 1, modelData.serves ? 0.55 : 0.18)
 
 				Canvas {
 					anchors.fill: parent
 					anchors.margins: Kirigami.Units.smallSpacing
-					opacity: modelData.sirve ? 1 : 0.35
+					opacity: modelData.serves ? 1 : 0.35
 
 					onPaint: {
 						const ctx = getContext("2d")
 						ctx.reset()
 						const w = width, h = height
-						const lado = Math.min(w, h)
-						ctx.strokeStyle = tira.tinta
-						ctx.fillStyle = tira.tinta
-						ctx.lineWidth = Math.max(2, lado * 0.13)
+						const side = Math.min(w, h)
+						ctx.strokeStyle = strip.ink
+						ctx.fillStyle = strip.ink
+						ctx.lineWidth = Math.max(2, side * 0.13)
 						ctx.lineCap = "round"
 						ctx.lineJoin = "round"
 
-						const hacia = modelData.hacia && modelData.hacia.length
-							? modelData.hacia : ["straight"]
+						const toward = modelData.toward && modelData.toward.length
+							? modelData.toward : ["straight"]
 
-						for (var i = 0; i < hacia.length; ++i) {
-							const a = tira._angulo(hacia[i]) * Math.PI / 180
+						for (var i = 0; i < toward.length; ++i) {
+							const a = strip._angle(toward[i]) * Math.PI / 180
 							const cx = w / 2, base = h * 0.92
-							const codo = h * 0.5
-							const largo = lado * 0.34
-							const ex = cx + Math.sin(a) * largo
-							const ey = codo - Math.cos(a) * largo
+							const elbow = h * 0.5
+							const size = side * 0.34
+							const ex = cx + Math.sin(a) * size
+							const ey = elbow - Math.cos(a) * size
 
 							ctx.beginPath()
 							ctx.moveTo(cx, base)
-							ctx.lineTo(cx, codo)
+							ctx.lineTo(cx, elbow)
 							ctx.lineTo(ex, ey)
 							ctx.stroke()
 
 							// The head, pointing where the lane goes.
-							const p = lado * 0.17
+							const p = side * 0.17
 							const dx = Math.sin(a), dy = -Math.cos(a)
 							ctx.beginPath()
 							ctx.moveTo(ex + dx * p, ey + dy * p)
@@ -107,7 +107,7 @@ Item {
 
 					// A Canvas does not repaint just because the model behind it
 					// changed, so the change is watched by hand.
-					property var datos: modelData
+					property var laneData: modelData
 					onDatosChanged: requestPaint()
 					Component.onCompleted: requestPaint()
 				}

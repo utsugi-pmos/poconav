@@ -12,37 +12,37 @@
 import QtQuick
 
 Canvas {
-	id: flecha
+	id: arrow
 
 	// 0 is straight on, positive turns right, negative left, 180 is a U-turn.
-	property real giro: 0
-	property bool rotonda: false
-	property bool destino: false
+	property real turn: 0
+	property bool roundabout: false
+	property bool destination: false
 	// Which exit off the roundabout. 0 means Valhalla did not say.
-	property int salida: 0
-	property color tinta: "white"
+	property int exitNumber: 0
+	property color ink: "white"
 
-	onGiroChanged: requestPaint()
-	onRotondaChanged: requestPaint()
-	onDestinoChanged: requestPaint()
+	onTurnChanged: requestPaint()
+	onRoundaboutChanged: requestPaint()
+	onDestinationChanged: requestPaint()
 	onSalidaChanged: requestPaint()
-	onTintaChanged: requestPaint()
+	onInkChanged: requestPaint()
 	onWidthChanged: requestPaint()
 	onHeightChanged: requestPaint()
 
-	function _punta(ctx, x, y, angulo, tam) {
-		// Filled triangle pointing along `angulo`, measured like a compass:
+	function _head(ctx, x, y, angle, tipSize) {
+		// Filled triangle pointing along `angle`, measured like a compass:
 		// 0 is up, 90 is right.
-		const a = angulo * Math.PI / 180
+		const a = angle * Math.PI / 180
 		const dx = Math.sin(a), dy = -Math.cos(a)
 		// Perpendicular, for the two back corners.
 		const px = -dy, py = dx
 		ctx.beginPath()
-		ctx.moveTo(x + dx * tam, y + dy * tam)
-		ctx.lineTo(x - dx * tam * 0.35 + px * tam * 0.75,
-			y - dy * tam * 0.35 + py * tam * 0.75)
-		ctx.lineTo(x - dx * tam * 0.35 - px * tam * 0.75,
-			y - dy * tam * 0.35 - py * tam * 0.75)
+		ctx.moveTo(x + dx * tipSize, y + dy * tipSize)
+		ctx.lineTo(x - dx * tipSize * 0.35 + px * tipSize * 0.75,
+			y - dy * tipSize * 0.35 + py * tipSize * 0.75)
+		ctx.lineTo(x - dx * tipSize * 0.35 - px * tipSize * 0.75,
+			y - dy * tipSize * 0.35 - py * tipSize * 0.75)
 		ctx.closePath()
 		ctx.fill()
 	}
@@ -52,30 +52,30 @@ Canvas {
 		ctx.reset()
 
 		const w = width, h = height
-		const lado = Math.min(w, h)
+		const side = Math.min(w, h)
 		const cx = w / 2
-		const grosor = lado * 0.11
-		const punta = lado * 0.15
+		const thickness = side * 0.11
+		const tip = side * 0.15
 
-		ctx.strokeStyle = tinta
-		ctx.fillStyle = tinta
-		ctx.lineWidth = grosor
+		ctx.strokeStyle = ink
+		ctx.fillStyle = ink
+		ctx.lineWidth = thickness
 		ctx.lineCap = "round"
 		ctx.lineJoin = "round"
 
-		if (destino) {
+		if (destination) {
 			// A ring with a dot in it. Not a flag: a flag has a side, and the
 			// side would be a lie half the time.
 			ctx.beginPath()
-			ctx.arc(cx, h / 2, lado * 0.30, 0, Math.PI * 2)
+			ctx.arc(cx, h / 2, side * 0.30, 0, Math.PI * 2)
 			ctx.stroke()
 			ctx.beginPath()
-			ctx.arc(cx, h / 2, lado * 0.11, 0, Math.PI * 2)
+			ctx.arc(cx, h / 2, side * 0.11, 0, Math.PI * 2)
 			ctx.fill()
 			return
 		}
 
-		if (rotonda) {
+		if (roundabout) {
 			// The ring you go round, the road you came in by, and the exit.
 			//
 			// The exit is drawn at a fixed angle, NOT at the real one: Valhalla
@@ -83,7 +83,7 @@ Canvas {
 			// would be worse than admitting there is none. What the driver
 			// needs is the number, so the number goes in the middle of the
 			// ring, where it is the biggest thing in the glyph.
-			const r = lado * 0.30
+			const r = side * 0.30
 			const cy = h * 0.44
 			ctx.beginPath()
 			ctx.arc(cx, cy, r, 0, Math.PI * 2)
@@ -96,27 +96,27 @@ Canvas {
 
 			const a = 55 * Math.PI / 180
 			const sx = cx + Math.sin(a) * r, sy = cy - Math.cos(a) * r
-			const ex = cx + Math.sin(a) * (r + lado * 0.20)
-			const ey = cy - Math.cos(a) * (r + lado * 0.20)
+			const ex = cx + Math.sin(a) * (r + side * 0.20)
+			const ey = cy - Math.cos(a) * (r + side * 0.20)
 			ctx.beginPath()
 			ctx.moveTo(sx, sy)
 			ctx.lineTo(ex, ey)
 			ctx.stroke()
-			_punta(ctx, ex, ey, 55, punta)
+			_head(ctx, ex, ey, 55, tip)
 
-			if (salida > 0) {
-				ctx.font = "bold " + Math.round(lado * 0.34) + "px sans-serif"
+			if (exitNumber > 0) {
+				ctx.font = "bold " + Math.round(side * 0.34) + "px sans-serif"
 				ctx.textAlign = "center"
 				ctx.textBaseline = "middle"
-				ctx.fillText(String(salida), cx, cy)
+				ctx.fillText(String(exitNumber), cx, cy)
 			}
 			return
 		}
 
-		if (Math.abs(giro) >= 175) {
+		if (Math.abs(turn) >= 175) {
 			// A U-turn drawn as two segments would fold back over its own
 			// stem and be unreadable, so it gets a real half circle.
-			const r = lado * 0.20
+			const r = side * 0.20
 			const cy = h * 0.42
 			ctx.beginPath()
 			ctx.moveTo(cx - r, h * 0.95)
@@ -124,7 +124,7 @@ Canvas {
 			ctx.arc(cx, cy, r, Math.PI, 0, false)
 			ctx.lineTo(cx + r, h * 0.72)
 			ctx.stroke()
-			_punta(ctx, cx + r, h * 0.72 + punta * 0.2, 180, punta)
+			_head(ctx, cx + r, h * 0.72 + tip * 0.2, 180, tip)
 			return
 		}
 
@@ -134,18 +134,18 @@ Canvas {
 		// A sharp turn doubles back, so its head lands next to its own stem.
 		// Raising the elbow and shortening the blade buys the clearance that
 		// keeps the two from touching.
-		const cerrada = Math.abs(giro) > 100
-		const codo = h * (cerrada ? 0.42 : 0.52)
-		const largo = lado * (cerrada ? 0.30 : 0.34)
-		const a = giro * Math.PI / 180
-		const ex = cx + Math.sin(a) * largo
-		const ey = codo - Math.cos(a) * largo
+		const tight = Math.abs(turn) > 100
+		const elbow = h * (tight ? 0.42 : 0.52)
+		const size = side * (tight ? 0.30 : 0.34)
+		const a = turn * Math.PI / 180
+		const ex = cx + Math.sin(a) * size
+		const ey = elbow - Math.cos(a) * size
 
 		ctx.beginPath()
 		ctx.moveTo(cx, h * 0.95)
-		ctx.lineTo(cx, codo)
+		ctx.lineTo(cx, elbow)
 		ctx.lineTo(ex, ey)
 		ctx.stroke()
-		_punta(ctx, ex, ey, giro, punta)
+		_head(ctx, ex, ey, turn, tip)
 	}
 }

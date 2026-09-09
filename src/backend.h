@@ -27,22 +27,22 @@ class Backend : public QObject
 
 	// Whether a download is running, and how it is going. QML binds straight to
 	// these -- no polling, no status file, no parsing.
-	Q_PROPERTY(bool trabajando READ trabajando NOTIFY tareaCambiada)
-	Q_PROPERTY(QString tareaTexto READ tareaTexto NOTIFY tareaCambiada)
-	Q_PROPERTY(int tareaPct READ tareaPct NOTIFY tareaCambiada)
+	Q_PROPERTY(bool busy READ busy NOTIFY taskChanged)
+	Q_PROPERTY(QString taskText READ taskText NOTIFY taskChanged)
+	Q_PROPERTY(int taskPct READ taskPct NOTIFY taskChanged)
 
-	Q_PROPERTY(QStringList voces READ voces NOTIFY vocesCambiadas)
-	Q_PROPERTY(QString vozActiva READ vozActiva WRITE setVozActiva NOTIFY vozActivaCambiada)
-	Q_PROPERTY(QStringList mapas READ mapas NOTIFY mapasCambiados)
+	Q_PROPERTY(QStringList voices READ voices NOTIFY voicesChanged)
+	Q_PROPERTY(QString activeVoice READ activeVoice WRITE setActiveVoice NOTIFY activeVoiceChanged)
+	Q_PROPERTY(QStringList maps READ maps NOTIFY mapsChanged)
 	// The ones that also bring what they need to BE DRAWN. A separate list
 	// because they are two different downloads: you can be able to go somewhere
 	// and not be able to paint it.
-	Q_PROPERTY(QStringList dibujables READ dibujables NOTIFY mapasCambiados)
-	Q_PROPERTY(bool hayDibujoLocal READ hayDibujoLocal NOTIFY mapasCambiados)
+	Q_PROPERTY(QStringList drawables READ drawables NOTIFY mapsChanged)
+	Q_PROPERTY(bool hasLocalDrawing READ hasLocalDrawing NOTIFY mapsChanged)
 
 	// True when there are routable tiles on disk. This says local data CAN
-	// answer, not that it is preferred -- the order is decided by hayRed below.
-	Q_PROPERTY(bool hayMapaLocal READ hayMapaLocal NOTIFY mapasCambiados)
+	// answer, not that it is preferred -- the order is decided by hasNetwork below.
+	Q_PROPERTY(bool hasLocalMap READ hasLocalMap NOTIFY mapsChanged)
 
 	// Whether the phone can reach the internet right now.
 	//
@@ -55,83 +55,83 @@ class Backend : public QObject
 	// It comes from QNetworkInformation, which on this phone is NetworkManager:
 	// the same source that knows the WiFi dropped, reported the moment it does,
 	// not polled.
-	Q_PROPERTY(bool hayRed READ hayRed NOTIFY hayRedCambiada)
+	Q_PROPERTY(bool hasNetwork READ hasNetwork NOTIFY hasNetworkChanged)
 
 public:
 	explicit Backend(QObject *parent = nullptr);
 	~Backend() override;
 
-	bool trabajando() const { return m_trabajando; }
-	QString tareaTexto() const { return m_tareaTexto; }
-	int tareaPct() const { return m_tareaPct; }
-	QStringList voces() const { return m_voces; }
-	QString vozActiva() const { return m_vozActiva; }
-	void setVozActiva(const QString &id);
-	QStringList mapas() const { return m_mapas; }
-	QStringList dibujables() const { return m_dibujables; }
-	bool hayDibujoLocal() const { return !m_dibujables.isEmpty(); }
-	bool hayMapaLocal() const { return !m_mapas.isEmpty(); }
-	bool hayRed() const { return m_hayRed; }
+	bool busy() const { return m_busy; }
+	QString taskText() const { return m_taskText; }
+	int taskPct() const { return m_taskPct; }
+	QStringList voices() const { return m_voices; }
+	QString activeVoice() const { return m_activeVoice; }
+	void setActiveVoice(const QString &id);
+	QStringList maps() const { return m_maps; }
+	QStringList drawables() const { return m_drawables; }
+	bool hasLocalDrawing() const { return !m_drawables.isEmpty(); }
+	bool hasLocalMap() const { return !m_maps.isEmpty(); }
+	bool hasNetwork() const { return m_hasNetwork; }
 
 	// Downloads. Both refuse to start while another one runs: two writers into
 	// the same data directory is a corrupted map, and the phone's link is not
 	// wide enough for it to be worth the risk.
-	Q_INVOKABLE void bajarVoz(const QString &id);
-	Q_INVOKABLE void bajarMapa(const QString &region);
+	Q_INVOKABLE void downloadVoice(const QString &id);
+	Q_INVOKABLE void downloadMap(const QString &region);
 	// The tiles used to DRAW, downloaded separately from the routing ones.
-	Q_INVOKABLE void bajarDibujo(const QString &region);
+	Q_INVOKABLE void downloadDrawing(const QString &region);
 	// The map for AROUND HERE: only the zoom 7 tiles that surround that position.
 	// It is what makes downloading the drawing 132 MB and not 1.9 GB.
-	Q_INVOKABLE void bajarDibujoCerca(const QString &region, double lat,
+	Q_INVOKABLE void downloadDrawingNear(const QString &region, double lat,
 		double lon, int anillo);
 	// The same tiles without downloading anything, so it can say how many there
 	// are and how much they will take up BEFORE starting.
-	Q_INVOKABLE QStringList cuadrosDe(double lat, double lon, int anillo) const;
+	Q_INVOKABLE QStringList boxesAt(double lat, double lon, int anillo) const;
 	// The map for WHERE YOU ARE GOING: the tiles passed to it, and not the ones
 	// underneath the phone. It is what is needed before setting off on a trip.
-	Q_INVOKABLE void bajarDibujoCuadros(const QString &region,
-		const QStringList &cuadros);
+	Q_INVOKABLE void downloadDrawingBoxes(const QString &region,
+		const QStringList &boxes);
 	// The tiles a rectangle covers. It is how the map a route needs is known
 	// before adopting it: the planner keeps it without decoding, but Valhalla
 	// does give the rectangle that contains it.
-	Q_INVOKABLE QStringList cuadrosDelRectangulo(double minLat, double minLon,
+	Q_INVOKABLE QStringList boxesInRectangle(double minLat, double minLon,
 		double maxLat, double maxLon) const;
-	Q_INVOKABLE void cancelar();
-	Q_INVOKABLE void borrarMapa(const QString &region);
+	Q_INVOKABLE void cancel();
+	Q_INVOKABLE void deleteMap(const QString &region);
 
 	// Speech. The phrase goes straight into piper's stdin; the process stays
 	// alive between phrases because loading the model costs ~4 s and a driving
 	// instruction that late has already been missed.
-	Q_INVOKABLE void decir(const QString &frase);
+	Q_INVOKABLE void speak(const QString &phrase);
 	// Cuts off whatever is being said NOW. On cancelling a route it is not enough
 	// to stop sending phrases: the one already out keeps playing.
-	Q_INVOKABLE void callar();
+	Q_INVOKABLE void stopSpeaking();
 
 	// Keeps the screen from blanking while navigating -- and only while
 	// navigating, so a map left open in a pocket still lets the phone sleep.
-	Q_INVOKABLE void mantenerPantalla(bool si);
+	Q_INVOKABLE void keepScreenOn(bool on);
 
 	// Where downloaded data lives, so QML can hand it to the routing engine.
-	Q_INVOKABLE QString rutaDatos() const;
+	Q_INVOKABLE QString dataPath() const;
 
 signals:
-	void tareaCambiada();
-	void vocesCambiadas();
-	void vozActivaCambiada();
-	void mapasCambiados();
-	void hayRedCambiada();
-	void terminado(bool ok, const QString &mensaje);
+	void taskChanged();
+	void voicesChanged();
+	void activeVoiceChanged();
+	void mapsChanged();
+	void hasNetworkChanged();
+	void taskFinished(bool ok, const QString &message);
 
 private slots:
-	void alProgresar(qint64 hechos, qint64 total);
-	void alTerminarDescarga();
+	void onProgress(qint64 received, qint64 total);
+	void onDownloadFinished();
 
 private:
-	void mirarQueHay();
-	void anunciar(const QString &texto, int pct);
-	void acabar(bool ok, const QString &mensaje);
-	void arrancarVoz();
-	void pedir(const QUrl &url, const QString &destino);
+	void rescan();
+	void announce(const QString &text, int pct);
+	void finish(bool ok, const QString &message);
+	void startVoice();
+	void request(const QUrl &url, const QString &destination);
 
 	// Starts the app's own routing server. A child process, not a service:
 	// nothing installs it, nothing enables it, and it dies with the app.
@@ -139,47 +139,47 @@ private:
 	// It exists only because Alpine's valhalla-dev package ships no headers, so
 	// the library cannot be reached from C++ at all -- the Python module is the
 	// only door in, and that door happens to be in another process.
-	void arrancarRutas();
-	void _bajarMapa(const QString &region, bool dibujo);
+	void startRouteServer();
+	void _downloadMap(const QString &region, bool drawing);
 
 	// Subscribes to QNetworkInformation. There may be no backend available; in
 	// that case it is assumed that there IS a network, which is the normal case
 	// and the one that leaves the local fallback intact: it asks out, fails, and
 	// falls back home.
-	void vigilarRed();
+	void watchNetwork();
 
-	bool m_hayRed = true;
+	bool m_hasNetwork = true;
 
-	QNetworkAccessManager *m_red = nullptr;
-	QNetworkReply *m_bajada = nullptr;
-	QFile *m_salida = nullptr;
+	QNetworkAccessManager *m_net = nullptr;
+	QNetworkReply *m_download = nullptr;
+	QFile *m_outFile = nullptr;
 
-	bool m_trabajando = false;
-	QString m_tareaTexto;
-	int m_tareaPct = 0;
+	bool m_busy = false;
+	QString m_taskText;
+	int m_taskPct = 0;
 
 	// The region being downloaded and the voice that was requested: needed to
 	// know what to announce and what to set when it finishes.
-	QString m_regionEnCurso;
-	QString m_vozPedida;
+	QString m_regionInProgress;
+	QString m_requestedVoice;
 	// What was left half-done from the downloader's last line.
-	QString m_resto;
+	QString m_rest;
 
-	QStringList m_voces;
-	QString m_vozActiva;
+	QStringList m_voices;
+	QString m_activeVoice;
 	// Where the chosen voice is remembered between starts.
-	void _guardarVoz() const;
-	QString _vozGuardada() const;
-	static QString _ficheroVoz();
-	QStringList m_mapas;
-	QStringList m_dibujables;
+	void _saveVoice() const;
+	QString _savedVoice() const;
+	static QString _voiceFile();
+	QStringList m_maps;
+	QStringList m_drawables;
 	// The tiles requested for the download in progress; empty means the whole
 	// region.
-	QStringList m_cuadros;
+	QStringList m_boxes;
 
 	QProcess *m_piper = nullptr;
 	QProcess *m_aplay = nullptr;
-	QProcess *m_inhibidor = nullptr;
-	QProcess *m_rutas = nullptr;
-	QProcess *m_descargador = nullptr;
+	QProcess *m_inhibitor = nullptr;
+	QProcess *m_routeServer = nullptr;
+	QProcess *m_downloader = nullptr;
 };

@@ -24,10 +24,10 @@ namespace {
 // one documented exception to the everything-from-repositories rule, and it is
 // what makes the difference between a voice that sounds like a person and
 // espeak.
-const char *kServidorVoces =
+const char *kVoiceServer =
 	"https://huggingface.co/rhasspy/piper-voices/resolve/main";
 
-QString baseDatos()
+QString dataDir()
 {
 	return QStandardPaths::writableLocation(QStandardPaths::AppDataLocation);
 }
@@ -36,15 +36,15 @@ QString baseDatos()
 // The layout of the voice repository is derived from the name rather than
 // listed, because listing it means fetching a catalogue of several hundred
 // voices to use exactly one of them.
-QString caminoVoz(const QString &id)
+QString voicePath(const QString &id)
 {
-	const QStringList trozos = id.split(QLatin1Char('-'));
-	if (trozos.size() < 3)
+	const QStringList parts = id.split(QLatin1Char('-'));
+	if (parts.size() < 3)
 		return QString();
-	const QString local = trozos.at(0);              // es_ES
-	const QString idioma = local.section(QLatin1Char('_'), 0, 0);  // es
+	const QString local = parts.at(0);              // es_ES
+	const QString language = local.section(QLatin1Char('_'), 0, 0);  // es
 	return QStringLiteral("%1/%2/%3/%4/%5")
-		.arg(idioma, local, trozos.at(1), trozos.at(2), id);
+		.arg(language, local, parts.at(1), parts.at(2), id);
 }
 
 // The app was called QuickMaps until 1.0. Renaming it moved every path with
@@ -56,27 +56,45 @@ QString caminoVoz(const QString &id)
 // a rename cannot half-succeed. If the new name already exists the old one is
 // left untouched -- whatever is there now is what the app has been using, and
 // silently replacing it with an older tree would be worse than doing nothing.
-void mudarDe(const QString &viejo, const QString &nuevo)
+void moveFrom(const QString &old, const QString &newName)
 {
-	if (viejo == nuevo || QFileInfo::exists(nuevo) || !QFileInfo::exists(viejo))
+	if (old == newName || QFileInfo::exists(newName) || !QFileInfo::exists(old))
 		return;
-	if (QFile::rename(viejo, nuevo))
-		qInfo("moved %s -> %s", qUtf8Printable(viejo), qUtf8Printable(nuevo));
+	if (QFile::rename(old, newName))
+		qInfo("moved %s -> %s", qUtf8Printable(old), qUtf8Printable(newName));
 	else
-		qWarning("could not move %s", qUtf8Printable(viejo));
+		qWarning("could not move %s", qUtf8Printable(old));
 }
 
-void mudarDeQuickMaps()
+// The directories and the config key used to be Spanish. Everything a user has
+// already downloaded lives under the old names, and gigabytes of maps silently
+// disappearing from the list is not an acceptable way to rename a variable.
+//
+// Same shape as the QuickMaps move above: rename if the old one is there and the
+// new one is not, so it costs nothing on a fresh install and runs once otherwise.
+void moveFromSpanishNames()
 {
-	const QString datos = baseDatos();
-	mudarDe(QFileInfo(datos).path() + QStringLiteral("/quickmaps"), datos);
+	const QString data = dataDir();
+	moveFrom(data + QStringLiteral("/mapas"), data + QStringLiteral("/maps"));
+	moveFrom(data + QStringLiteral("/voces"), data + QStringLiteral("/voices"));
 
 	const QString conf =
 		QStandardPaths::writableLocation(QStandardPaths::ConfigLocation);
-	mudarDe(conf + QStringLiteral("/quickmaps.conf"),
+	moveFrom(conf + QStringLiteral("/poconav-voz.conf"),
+		conf + QStringLiteral("/poconav-voice.conf"));
+}
+
+void moveFromQuickMaps()
+{
+	const QString dataPath = dataDir();
+	moveFrom(QFileInfo(dataPath).path() + QStringLiteral("/quickmaps"), dataPath);
+
+	const QString conf =
+		QStandardPaths::writableLocation(QStandardPaths::ConfigLocation);
+	moveFrom(conf + QStringLiteral("/quickmaps.conf"),
 		conf + QStringLiteral("/poconav.conf"));
-	mudarDe(conf + QStringLiteral("/quickmaps-voz.conf"),
-		conf + QStringLiteral("/poconav-voz.conf"));
+	moveFrom(conf + QStringLiteral("/quickmaps-voice.conf"),
+		conf + QStringLiteral("/poconav-voice.conf"));
 }
 
 
@@ -94,7 +112,7 @@ void mudarDeQuickMaps()
 //
 // The maths is the usual one for tile maps. The latitude goes through Mercator,
 // which is what makes a tile taller near the equator than near the pole.
-QStringList cuadrosCerca(double lat, double lon, int anillo)
+QStringList boxesNear(double lat, double lon, int anillo)
 {
 	const int n = 1 << 7;
 	const double latRad = qDegreesToRadians(qBound(-85.05, lat, 85.05));
@@ -102,7 +120,7 @@ QStringList cuadrosCerca(double lat, double lon, int anillo)
 	const int y0 = int((1.0 - std::log(std::tan(latRad) + 1.0 / std::cos(latRad))
 		/ M_PI) / 2.0 * n);
 
-	QStringList fuera;
+	QStringList out;
 	for (int dy = -anillo; dy <= anillo; ++dy) {
 		for (int dx = -anillo; dx <= anillo; ++dx) {
 			const int y = y0 + dy;
@@ -112,10 +130,10 @@ QStringList cuadrosCerca(double lat, double lon, int anillo)
 			// neighbouring tile is at the other end of the index, and without
 			// this modulo one that does not exist would be requested.
 			const int x = ((x0 + dx) % n + n) % n;
-			fuera << QStringLiteral("7-%1-%2").arg(x).arg(y);
+			out << QStringLiteral("7-%1-%2").arg(x).arg(y);
 		}
 	}
-	return fuera;
+	return out;
 }
 
 // All the tiles a rectangle covers.
@@ -125,7 +143,7 @@ QStringList cuadrosCerca(double lat, double lon, int anillo)
 // it, and for tiles 300 km on a side the rectangle and the line give practically
 // the same thing -- with the advantage that the rectangle SKIPS NONE, whereas
 // sampling a line can.
-QStringList cuadrosDelArea(double minLat, double minLon,
+QStringList boxesInArea(double minLat, double minLon,
 	double maxLat, double maxLon)
 {
 	const int n = 1 << 7;
@@ -142,31 +160,32 @@ QStringList cuadrosDelArea(double minLat, double minLon,
 	const int x1 = aX(minLon), x2 = aX(maxLon);
 	const int y1 = aY(maxLat), y2 = aY(minLat);
 
-	QStringList fuera;
+	QStringList out;
 	for (int y = qMin(y1, y2); y <= qMax(y1, y2); ++y)
 		for (int x = qMin(x1, x2); x <= qMax(x1, x2); ++x)
-			fuera << QStringLiteral("7-%1-%2").arg(x).arg(y);
-	return fuera;
+			out << QStringLiteral("7-%1-%2").arg(x).arg(y);
+	return out;
 }
 
 } // namespace
 
 Backend::Backend(QObject *parent)
 	: QObject(parent)
-	, m_red(new QNetworkAccessManager(this))
+	, m_net(new QNetworkAccessManager(this))
 {
 	// Before mkpath: QFile::rename refuses to overwrite, so creating the new
 	// tree first would make the move impossible for ever.
-	mudarDeQuickMaps();
-	QDir().mkpath(baseDatos() + QStringLiteral("/voces"));
-	QDir().mkpath(baseDatos() + QStringLiteral("/mapas"));
-	mirarQueHay();
-	vigilarRed();
-	arrancarVoz();
-	arrancarRutas();
+	moveFromQuickMaps();
+	moveFromSpanishNames();
+	QDir().mkpath(dataDir() + QStringLiteral("/voices"));
+	QDir().mkpath(dataDir() + QStringLiteral("/maps"));
+	rescan();
+	watchNetwork();
+	startVoice();
+	startRouteServer();
 }
 
-void Backend::vigilarRed()
+void Backend::watchNetwork()
 {
 	// The backend is loaded once for the whole process. If there is none --
 	// a minimal session without NetworkManager, for example -- the assumption
@@ -181,35 +200,35 @@ void Backend::vigilarRed()
 	if (!info)
 		return;
 
-	auto leer = [this, info] {
+	auto read = [this, info] {
 		// 'Online' and not "other than Disconnected": in between are Local and
 		// Site, which mean having an IP on the home network WITHOUT a way out to
 		// the internet. That is exactly the state of the phone plugged in over
 		// USB with WiFi off, and taking it as good would send every route to an
 		// unreachable server.
-		const bool ahora =
+		const bool now =
 			info->reachability() == QNetworkInformation::Reachability::Online;
-		if (ahora == m_hayRed)
+		if (now == m_hasNetwork)
 			return;
-		m_hayRed = ahora;
-		emit hayRedCambiada();
+		m_hasNetwork = now;
+		emit hasNetworkChanged();
 	};
-	connect(info, &QNetworkInformation::reachabilityChanged, this, leer);
-	leer();
+	connect(info, &QNetworkInformation::reachabilityChanged, this, read);
+	read();
 }
 
-void Backend::arrancarRutas()
+void Backend::startRouteServer()
 {
-	if (m_rutas)
+	if (m_routeServer)
 		return;
-	m_rutas = new QProcess(this);
+	m_routeServer = new QProcess(this);
 	// The server reads the data directory from the environment rather than
 	// working it out again: two places deciding the same path is two places to
 	// drift apart.
-	QProcessEnvironment entorno = QProcessEnvironment::systemEnvironment();
-	entorno.insert(QStringLiteral("POCONAV_DATOS"), baseDatos());
-	m_rutas->setProcessEnvironment(entorno);
-	m_rutas->start(QStringLiteral("poconav-routes"), {});
+	QProcessEnvironment env = QProcessEnvironment::systemEnvironment();
+	env.insert(QStringLiteral("POCONAV_DATA"), dataDir());
+	m_routeServer->setProcessEnvironment(env);
+	m_routeServer->start(QStringLiteral("poconav-routes"), {});
 	// Not waited for. It only matters once a route is asked for, and by then it
 	// has had seconds to come up -- blocking the first frame on it would delay
 	// the map for nothing.
@@ -217,7 +236,7 @@ void Backend::arrancarRutas()
 
 Backend::~Backend()
 {
-	mantenerPantalla(false);
+	keepScreenOn(false);
 	// Closing piper's stdin is what actually ends the chain: it sees EOF, exits,
 	// and aplay goes with it. Killing it outright would leave aplay holding the
 	// sound device.
@@ -254,56 +273,56 @@ Backend::~Backend()
 	}
 	// The routing server holds Valhalla's tile index in memory -- hundreds of
 	// megabytes. Leaving it behind would cost that much again on every launch.
-	if (m_rutas && m_rutas->state() != QProcess::NotRunning) {
-		m_rutas->terminate();
-		if (!m_rutas->waitForFinished(2000)) {
-			m_rutas->kill();
-			m_rutas->waitForFinished(1000);
+	if (m_routeServer && m_routeServer->state() != QProcess::NotRunning) {
+		m_routeServer->terminate();
+		if (!m_routeServer->waitForFinished(2000)) {
+			m_routeServer->kill();
+			m_routeServer->waitForFinished(1000);
 		}
 	}
 }
 
-QString Backend::rutaDatos() const
+QString Backend::dataPath() const
 {
-	return baseDatos();
+	return dataDir();
 }
 
 // --- what is installed -------------------------------------------------------
 
-void Backend::mirarQueHay()
+void Backend::rescan()
 {
-	const QDir dv(baseDatos() + QStringLiteral("/voces"));
-	m_voces.clear();
+	const QDir dv(dataDir() + QStringLiteral("/voices"));
+	m_voices.clear();
 	const auto onnx = dv.entryList({ QStringLiteral("*.onnx") }, QDir::Files, QDir::Name);
 	for (const QString &f : onnx)
-		m_voces << QFileInfo(f).completeBaseName();
+		m_voices << QFileInfo(f).completeBaseName();
 
 	// THE CHOSEN VOICE IS REMEMBERED, and the first one alphabetically is not
 	// taken.
 	//
-	// Before, 'm_voces.value(0)' was taken, i.e. the first in the directory
+	// Before, 'm_voices.value(0)' was taken, i.e. the first in the directory
 	// listing. A real and baffling consequence: after downloading an English
 	// voice, on the next start it took over by being "en_GB..." before
 	// "es_ES..." -- and since the interface language comes from the voice, THE
 	// WHOLE APP CAME UP IN ENGLISH without anyone having asked for that.
-	if (m_vozActiva.isEmpty() || !m_voces.contains(m_vozActiva)) {
-		const QString guardada = _vozGuardada();
-		if (m_voces.contains(guardada))
-			m_vozActiva = guardada;
+	if (m_activeVoice.isEmpty() || !m_voices.contains(m_activeVoice)) {
+		const QString saved = _savedVoice();
+		if (m_voices.contains(saved))
+			m_activeVoice = saved;
 		else
-			m_vozActiva = m_voces.value(0);
-		emit vozActivaCambiada();
+			m_activeVoice = m_voices.value(0);
+		emit activeVoiceChanged();
 	}
 
 	// A region counts as present only when its routing tiles are there. The
 	// geocoder alone would let the app find an address and then fail to route to
 	// it, which is worse than admitting there is no map.
-	const QDir dm(baseDatos() + QStringLiteral("/mapas"));
-	m_mapas.clear();
-	m_dibujables.clear();
+	const QDir dm(dataDir() + QStringLiteral("/maps"));
+	m_maps.clear();
+	m_drawables.clear();
 	for (const QString &r : dm.entryList(QDir::Dirs | QDir::NoDotAndDotDot, QDir::Name)) {
 		if (QFileInfo::exists(dm.filePath(r) + QStringLiteral("/valhalla/tiles")))
-			m_mapas << r;
+			m_maps << r;
 		// And the ones that can also be DRAWN. They are separate lists on
 		// purpose: a region may have what it needs to route and not what it needs
 		// to be shown, or the other way round. Showing a single list would force
@@ -311,183 +330,188 @@ void Backend::mirarQueHay()
 		const QDir dd(dm.filePath(r) + QStringLiteral("/mapboxgl"));
 		if (dd.exists() && !dd.entryList({ QStringLiteral("*.mbtiles") },
 				QDir::Files).isEmpty())
-			m_dibujables << r;
+			m_drawables << r;
 	}
 
-	emit vocesCambiadas();
-	emit mapasCambiados();
+	emit voicesChanged();
+	emit mapsChanged();
 }
 
-void Backend::setVozActiva(const QString &id)
+void Backend::setActiveVoice(const QString &id)
 {
-	if (m_vozActiva == id)
+	if (m_activeVoice == id)
 		return;
-	m_vozActiva = id;
-	_guardarVoz();
-	emit vozActivaCambiada();
+	m_activeVoice = id;
+	_saveVoice();
+	emit activeVoiceChanged();
 	// The model is loaded once at startup, so switching voices means restarting
 	// the process. Cheap enough: it happens when a person taps a settings row,
 	// not while driving.
-	arrancarVoz();
+	startVoice();
 }
 
 // A FILE OF ITS OWN, not the interface's one.
 //
 // The interface's file is managed by QML's Settings element, which writes ITS
 // whole set of properties every time. Sharing it caused two problems in a row:
-// first a name clash -- 'voz' was already the mute switch, and ended up worth
+// first a name clash -- 'voice' was already the mute switch, and ended up worth
 // 'true' on top of the voice name -- and then, with another name, the key read
 // back empty even though it was written in the file and QSettings said it had
 // read it fine (status=0, 20 keys).
 //
 // The exact mechanism was not pursued further: two processes writing the same
 // .conf is fragile by definition, and separating them costs one line.
-QString Backend::_ficheroVoz()
+QString Backend::_voiceFile()
 {
 	return QStandardPaths::writableLocation(QStandardPaths::ConfigLocation)
-		+ QStringLiteral("/poconav-voz.conf");
+		+ QStringLiteral("/poconav-voice.conf");
 }
 
-QString Backend::_vozGuardada() const
+QString Backend::_savedVoice() const
 {
-	QSettings s(_ficheroVoz(), QSettings::IniFormat);
-	// WITHOUT a group, and not "General/vozElegida". QSettings reserves the INI's
+	QSettings s(_voiceFile(), QSettings::IniFormat);
+	// WITHOUT a group, and not "General/chosenVoice". QSettings reserves the INI's
 	// [General] section for keys that are NOT in any group, and to avoid stepping
 	// on it, it writes a group actually named "General" as [%General]. So asking
-	// for "General/vozElegida" looks in a section that does not exist.
+	// for "General/chosenVoice" looks in a section that does not exist.
 	//
 	// Symptom: QSettings said the file was fine (status=0) and that it saw the
 	// key (keys=1), and the read returned an empty string all the same.
+	const QString v = s.value(QStringLiteral("chosenVoice")).toString();
+	if (!v.isEmpty())
+		return v;
+	// The key was "vozElegida" before the rename. Read it once so the phone does
+	// not forget which voice was chosen; the next write stores the new name.
 	return s.value(QStringLiteral("vozElegida")).toString();
 }
 
-void Backend::_guardarVoz() const
+void Backend::_saveVoice() const
 {
-	QSettings s(_ficheroVoz(), QSettings::IniFormat);
-	s.setValue(QStringLiteral("vozElegida"), m_vozActiva);
+	QSettings s(_voiceFile(), QSettings::IniFormat);
+	s.setValue(QStringLiteral("chosenVoice"), m_activeVoice);
 }
 
 // --- progress ----------------------------------------------------------------
 
-void Backend::anunciar(const QString &texto, int pct)
+void Backend::announce(const QString &text, int pct)
 {
-	m_trabajando = true;
-	m_tareaTexto = texto;
-	m_tareaPct = pct;
-	emit tareaCambiada();
+	m_busy = true;
+	m_taskText = text;
+	m_taskPct = pct;
+	emit taskChanged();
 }
 
-void Backend::acabar(bool ok, const QString &mensaje)
+void Backend::finish(bool ok, const QString &message)
 {
-	m_trabajando = false;
-	m_tareaTexto.clear();
-	m_tareaPct = 0;
-	m_regionEnCurso.clear();
-	mirarQueHay();
-	emit tareaCambiada();
-	emit terminado(ok, mensaje);
+	m_busy = false;
+	m_taskText.clear();
+	m_taskPct = 0;
+	m_regionInProgress.clear();
+	rescan();
+	emit taskChanged();
+	emit taskFinished(ok, message);
 }
 
 // --- downloading -------------------------------------------------------------
 
-void Backend::pedir(const QUrl &url, const QString &destino)
+void Backend::request(const QUrl &url, const QString &destination)
 {
-	QDir().mkpath(QFileInfo(destino).absolutePath());
+	QDir().mkpath(QFileInfo(destination).absolutePath());
 
-	m_salida = new QFile(destino, this);
-	if (!m_salida->open(QIODevice::WriteOnly)) {
-		delete m_salida;
-		m_salida = nullptr;
-		acabar(false, tr("Cannot write to %1").arg(destino));
+	m_outFile = new QFile(destination, this);
+	if (!m_outFile->open(QIODevice::WriteOnly)) {
+		delete m_outFile;
+		m_outFile = nullptr;
+		finish(false, tr("Cannot write to %1").arg(destination));
 		return;
 	}
 
 	QNetworkRequest req(url);
 	req.setAttribute(QNetworkRequest::RedirectPolicyAttribute,
 		QNetworkRequest::NoLessSafeRedirectPolicy);
-	m_bajada = m_red->get(req);
-	connect(m_bajada, &QNetworkReply::downloadProgress, this, &Backend::alProgresar);
-	connect(m_bajada, &QNetworkReply::finished, this, &Backend::alTerminarDescarga);
+	m_download = m_net->get(req);
+	connect(m_download, &QNetworkReply::downloadProgress, this, &Backend::onProgress);
+	connect(m_download, &QNetworkReply::finished, this, &Backend::onDownloadFinished);
 	// Written as it arrives, not held in memory: a region is hundreds of
 	// megabytes and this phone has no room to buffer one.
-	connect(m_bajada, &QNetworkReply::readyRead, this, [this] {
-		if (m_salida && m_bajada)
-			m_salida->write(m_bajada->readAll());
+	connect(m_download, &QNetworkReply::readyRead, this, [this] {
+		if (m_outFile && m_download)
+			m_outFile->write(m_download->readAll());
 	});
 }
 
-void Backend::alProgresar(qint64 hechos, qint64 total)
+void Backend::onProgress(qint64 received, qint64 total)
 {
 	if (total <= 0)
 		return;
-	anunciar(m_tareaTexto, int(hechos * 100 / total));
+	announce(m_taskText, int(received * 100 / total));
 }
 
-void Backend::alTerminarDescarga()
+void Backend::onDownloadFinished()
 {
-	QNetworkReply *r = m_bajada;
-	m_bajada = nullptr;
+	QNetworkReply *r = m_download;
+	m_download = nullptr;
 	if (!r)
 		return;
 	r->deleteLater();
 
-	QString fichero;
-	if (m_salida) {
-		m_salida->write(r->readAll());
-		m_salida->close();
-		fichero = m_salida->fileName();
-		delete m_salida;
-		m_salida = nullptr;
+	QString file;
+	if (m_outFile) {
+		m_outFile->write(r->readAll());
+		m_outFile->close();
+		file = m_outFile->fileName();
+		delete m_outFile;
+		m_outFile = nullptr;
 	}
 
 	if (r->error() != QNetworkReply::NoError) {
 		// A half-written file left on disk would be counted as installed on the
 		// next start and would fail much later, somewhere unrelated.
-		if (!fichero.isEmpty())
-			QFile::remove(fichero);
+		if (!file.isEmpty())
+			QFile::remove(file);
 		if (r->error() == QNetworkReply::OperationCanceledError)
-			acabar(false, tr("Cancelled"));
+			finish(false, tr("Cancelled"));
 		else
-			acabar(false, r->errorString());
+			finish(false, r->errorString());
 		return;
 	}
 
 	// The just-downloaded voice sets itself. Downloading it and then having to
 	// choose it again would be one step too many for no reason.
-	acabar(true, tr("Done"));
-	if (!m_vozPedida.isEmpty()) {
-		setVozActiva(m_vozPedida);
-		m_vozPedida.clear();
+	finish(true, tr("Done"));
+	if (!m_requestedVoice.isEmpty()) {
+		setActiveVoice(m_requestedVoice);
+		m_requestedVoice.clear();
 	}
 }
 
-void Backend::bajarVoz(const QString &id)
+void Backend::downloadVoice(const QString &id)
 {
-	if (m_trabajando) {
-		emit terminado(false, tr("A download is already in progress"));
+	if (m_busy) {
+		emit taskFinished(false, tr("A download is already in progress"));
 		return;
 	}
-	const QString camino = caminoVoz(id);
-	if (camino.isEmpty()) {
-		emit terminado(false, tr("Voice name not recognised: %1").arg(id));
+	const QString path = voicePath(id);
+	if (path.isEmpty()) {
+		emit taskFinished(false, tr("Voice name not recognised: %1").arg(id));
 		return;
 	}
 
-	const QString dir = baseDatos() + QStringLiteral("/voces/");
+	const QString dir = dataDir() + QStringLiteral("/voices/");
 	// The .json goes first and is small: it carries the sample rate, and without
 	// it the voice plays at the wrong speed and sounds like a chipmunk.
-	m_vozPedida = id;
-	anunciar(tr("Downloading the voice…"), 0);
+	m_requestedVoice = id;
+	announce(tr("Downloading the voice…"), 0);
 
-	QNetworkRequest req(QUrl(QString::fromLatin1(kServidorVoces)
-		+ QStringLiteral("/") + camino + QStringLiteral(".onnx.json")));
+	QNetworkRequest req(QUrl(QString::fromLatin1(kVoiceServer)
+		+ QStringLiteral("/") + path + QStringLiteral(".onnx.json")));
 	req.setAttribute(QNetworkRequest::RedirectPolicyAttribute,
 		QNetworkRequest::NoLessSafeRedirectPolicy);
-	QNetworkReply *meta = m_red->get(req);
-	connect(meta, &QNetworkReply::finished, this, [this, meta, id, camino, dir] {
+	QNetworkReply *meta = m_net->get(req);
+	connect(meta, &QNetworkReply::finished, this, [this, meta, id, path, dir] {
 		meta->deleteLater();
 		if (meta->error() != QNetworkReply::NoError) {
-			acabar(false, meta->errorString());
+			finish(false, meta->errorString());
 			return;
 		}
 		QFile j(dir + id + QStringLiteral(".onnx.json"));
@@ -495,9 +519,9 @@ void Backend::bajarVoz(const QString &id)
 			j.write(meta->readAll());
 			j.close();
 		}
-		anunciar(tr("Downloading the voice…"), 1);
-		pedir(QUrl(QString::fromLatin1(kServidorVoces) + QStringLiteral("/")
-			+ camino + QStringLiteral(".onnx")), dir + id + QStringLiteral(".onnx"));
+		announce(tr("Downloading the voice…"), 1);
+		request(QUrl(QString::fromLatin1(kVoiceServer) + QStringLiteral("/")
+			+ path + QStringLiteral(".onnx")), dir + id + QStringLiteral(".onnx"));
 	});
 }
 
@@ -512,9 +536,9 @@ void Backend::bajarVoz(const QString &id)
 // Rewriting it in C++ would buy nothing and would very likely get it subtly
 // wrong. So the app runs its own downloader: our script, in our package,
 // started and stopped by us. The download belongs to the app either way.
-void Backend::bajarMapa(const QString &region)
+void Backend::downloadMap(const QString &region)
 {
-	_bajarMapa(region, false);
+	_downloadMap(region, false);
 }
 
 // The map's DRAWING is downloaded separately, and it is not an organisational
@@ -528,10 +552,10 @@ void Backend::bajarMapa(const QString &region)
 //
 // The reverse holds too: on a trip you might want the drawing of a region you
 // only pass through, without downloading its routes.
-void Backend::bajarDibujo(const QString &region)
+void Backend::downloadDrawing(const QString &region)
 {
-	m_cuadros.clear();
-	_bajarMapa(region, true);
+	m_boxes.clear();
+	_downloadMap(region, true);
 }
 
 // The map for around here: only the tiles that surround this position.
@@ -539,22 +563,22 @@ void Backend::bajarDibujo(const QString &region)
 // 'anillo' is how many tiles on each side. 0 is only the one underneath -- 132
 // MB --, 1 is the nine around it. It is left to choose because the difference
 // between "where I live" and "Saturday's trip" is exactly that.
-void Backend::bajarDibujoCerca(const QString &region, double lat, double lon,
+void Backend::downloadDrawingNear(const QString &region, double lat, double lon,
 	int anillo)
 {
-	m_cuadros = cuadrosCerca(lat, lon, qBound(0, anillo, 3));
-	_bajarMapa(region, true);
+	m_boxes = boxesNear(lat, lon, qBound(0, anillo, 3));
+	_downloadMap(region, true);
 }
 
-QStringList Backend::cuadrosDe(double lat, double lon, int anillo) const
+QStringList Backend::boxesAt(double lat, double lon, int anillo) const
 {
-	return cuadrosCerca(lat, lon, qBound(0, anillo, 3));
+	return boxesNear(lat, lon, qBound(0, anillo, 3));
 }
 
-QStringList Backend::cuadrosDelRectangulo(double minLat, double minLon,
+QStringList Backend::boxesInRectangle(double minLat, double minLon,
 	double maxLat, double maxLon) const
 {
-	return cuadrosDelArea(minLat, minLon, maxLat, maxLon);
+	return boxesInArea(minLat, minLon, maxLat, maxLon);
 }
 
 // The map for WHERE YOU ARE GOING, which is the one really needed.
@@ -563,31 +587,31 @@ QStringList Backend::cuadrosDelRectangulo(double minLat, double minLon,
 // there, and if you got there you had a map or coverage. What is needed before
 // leaving is the one for the places you are going to pass through, and that is
 // only known once the route is computed.
-void Backend::bajarDibujoCuadros(const QString &region, const QStringList &cuadros)
+void Backend::downloadDrawingBoxes(const QString &region, const QStringList &boxes)
 {
-	if (cuadros.isEmpty()) {
-		emit terminado(false, tr("There is no tile to download"));
+	if (boxes.isEmpty()) {
+		emit taskFinished(false, tr("There is no tile to download"));
 		return;
 	}
 	// Filtered here and not in QML: what comes from the interface ends up as part
 	// of a command line, and "7-63-49" is all it can be.
-	static const QRegularExpression valido(QStringLiteral("^\\d+-\\d+-\\d+$"));
-	QStringList limpios;
-	for (const QString &c : cuadros)
-		if (valido.match(c).hasMatch())
-			limpios << c;
-	if (limpios.isEmpty()) {
-		emit terminado(false, tr("Invalid tile name"));
+	static const QRegularExpression wellFormed(QStringLiteral("^\\d+-\\d+-\\d+$"));
+	QStringList clean;
+	for (const QString &c : boxes)
+		if (wellFormed.match(c).hasMatch())
+			clean << c;
+	if (clean.isEmpty()) {
+		emit taskFinished(false, tr("Invalid tile name"));
 		return;
 	}
-	m_cuadros = limpios;
-	_bajarMapa(region, true);
+	m_boxes = clean;
+	_downloadMap(region, true);
 }
 
-void Backend::_bajarMapa(const QString &region, bool dibujo)
+void Backend::_downloadMap(const QString &region, bool drawing)
 {
-	if (m_trabajando) {
-		emit terminado(false, tr("A download is already in progress"));
+	if (m_busy) {
+		emit taskFinished(false, tr("A download is already in progress"));
 		return;
 	}
 	// Catalogue regions carry a slash -- "europe/spain" -- so the slash is
@@ -595,48 +619,48 @@ void Backend::_bajarMapa(const QString &region, bool dibujo)
 	// and without this check it could write outside the data directory.
 	if (region.isEmpty() || region.contains(QStringLiteral(".."))
 		|| region.startsWith(QLatin1Char('/'))) {
-		emit terminado(false, tr("Invalid region name"));
+		emit taskFinished(false, tr("Invalid region name"));
 		return;
 	}
 
-	m_regionEnCurso = region;
-	anunciar(dibujo ? tr("Looking for the map of %1…").arg(region)
+	m_regionInProgress = region;
+	announce(drawing ? tr("Looking for the map of %1…").arg(region)
 		: tr("Looking for %1…").arg(region), 0);
 
-	m_descargador = new QProcess(this);
-	m_descargador->setProcessChannelMode(QProcess::MergedChannels);
+	m_downloader = new QProcess(this);
+	m_downloader->setProcessChannelMode(QProcess::MergedChannels);
 
 	// Each region in ITS OWN folder, so that deleting one does not leave another
 	// without a file they shared. The slash is flattened to a hyphen: this way
 	// the listing of what is installed is a single level of directories and there
 	// is no need to walk a tree to know what is downloaded.
-	QString carpeta = region;
-	carpeta.replace(QLatin1Char('/'), QLatin1Char('-'));
-	const QString destino = baseDatos() + QStringLiteral("/mapas/") + carpeta;
+	QString folder = region;
+	folder.replace(QLatin1Char('/'), QLatin1Char('-'));
+	const QString destination = dataDir() + QStringLiteral("/maps/") + folder;
 
-	QProcess *proc = m_descargador;
+	QProcess *proc = m_downloader;
 
 	connect(proc, &QProcess::readyReadStandardOutput, this, [this, proc] {
 		// The text is accumulated because a read does NOT arrive split into
-		// lines: it may cut "PROGRESO 45 ..." right after the "4" and then a 4%
+		// lines: it may cut "PROGRESS 45 ..." right after the "4" and then a 4%
 		// that never existed would be announced. Only up to the last newline is
 		// processed, and the rest waits for the next read.
-		m_resto += QString::fromUtf8(proc->readAllStandardOutput());
-		const int ultimo = m_resto.lastIndexOf(QLatin1Char('\n'));
-		if (ultimo < 0)
+		m_rest += QString::fromUtf8(proc->readAllStandardOutput());
+		const int last = m_rest.lastIndexOf(QLatin1Char('\n'));
+		if (last < 0)
 			return;
-		const QString completo = m_resto.left(ultimo);
-		m_resto = m_resto.mid(ultimo + 1);
+		const QString whole = m_rest.left(last);
+		m_rest = m_rest.mid(last + 1);
 
-		for (const QString &l : completo.split(QLatin1Char('\n'), Qt::SkipEmptyParts)) {
-			if (!l.startsWith(QStringLiteral("PROGRESO ")))
+		for (const QString &l : whole.split(QLatin1Char('\n'), Qt::SkipEmptyParts)) {
+			if (!l.startsWith(QStringLiteral("PROGRESS ")))
 				continue;
-			// "PROGRESO <pct> <text>"
-			const QString resto = l.mid(9);
-			const int corte = resto.indexOf(QLatin1Char(' '));
-			if (corte <= 0)
+			// "PROGRESS <pct> <text>"
+			const QString rest = l.mid(9);
+			const int cut = rest.indexOf(QLatin1Char(' '));
+			if (cut <= 0)
 				continue;
-			anunciar(resto.mid(corte + 1).trimmed(), resto.left(corte).toInt());
+			announce(rest.mid(cut + 1).trimmed(), rest.left(cut).toInt());
 		}
 	});
 
@@ -646,77 +670,77 @@ void Backend::_bajarMapa(const QString &region, bool dibujo)
 	// used the member without checking it and would have dereferenced it once
 	// already set to null.
 	connect(proc, &QProcess::finished, this,
-		[this, proc](int codigo, QProcess::ExitStatus estado) {
-			if (m_descargador != proc)
+		[this, proc](int code, QProcess::ExitStatus status) {
+			if (m_downloader != proc)
 				return;
-			m_descargador = nullptr;
-			m_resto.clear();
+			m_downloader = nullptr;
+			m_rest.clear();
 			proc->deleteLater();
-			if (estado == QProcess::CrashExit)
-				acabar(false, tr("The download was interrupted"));
-			else if (codigo != 0)
-				acabar(false, tr("Could not download (check the region name)"));
+			if (status == QProcess::CrashExit)
+				finish(false, tr("The download was interrupted"));
+			else if (code != 0)
+				finish(false, tr("Could not download (check the region name)"));
 			else
-				acabar(true, tr("Map ready"));
+				finish(true, tr("Map ready"));
 		});
 
 	connect(proc, &QProcess::errorOccurred, this,
-		[this, proc](QProcess::ProcessError fallo) {
-			if (m_descargador != proc)
+		[this, proc](QProcess::ProcessError failure) {
+			if (m_downloader != proc)
 				return;
 			// Only being unable to start it matters. The other failures come
 			// accompanied by 'finished', and jumping ahead here would give two
 			// warnings for the same problem.
-			if (fallo != QProcess::FailedToStart)
+			if (failure != QProcess::FailedToStart)
 				return;
-			m_descargador = nullptr;
-			m_resto.clear();
+			m_downloader = nullptr;
+			m_rest.clear();
 			proc->deleteLater();
-			acabar(false, tr("Cannot find the map downloader"));
+			finish(false, tr("Cannot find the map downloader"));
 		});
 
-	QStringList args = { QStringLiteral("--bajar"), region,
-		QStringLiteral("--destino"), destino };
-	if (dibujo) {
+	QStringList args = { QStringLiteral("--download"), region,
+		QStringLiteral("--destination"), destination };
+	if (drawing) {
 		// The country tiles AND the GLOBAL pieces. Without the fonts NO label is
 		// drawn: the map comes out with its streets and its rivers and without a
 		// single name, which for driving is almost worse than not having it.
-		args << QStringLiteral("--solo")
+		args << QStringLiteral("--only")
 		     << QStringLiteral("mapboxgl_country,mapboxgl_glyphs,mapboxgl_global");
-		if (!m_cuadros.isEmpty())
-			args << QStringLiteral("--paquetes")
-			     << m_cuadros.join(QLatin1Char(','));
+		if (!m_boxes.isEmpty())
+			args << QStringLiteral("--packages")
+			     << m_boxes.join(QLatin1Char(','));
 	}
-	m_descargador->start(QStringLiteral("local-maps"), args);
+	m_downloader->start(QStringLiteral("local-maps"), args);
 }
 
-void Backend::cancelar()
+void Backend::cancel()
 {
-	m_vozPedida.clear();
+	m_requestedVoice.clear();
 	// terminate() and not kill(): the downloader removes its half-written .part
 	// file when it is asked to stop, and a killed one would leave it behind to
 	// be mistaken for a finished download later.
-	if (m_descargador && m_descargador->state() != QProcess::NotRunning) {
-		m_descargador->terminate();
+	if (m_downloader && m_downloader->state() != QProcess::NotRunning) {
+		m_downloader->terminate();
 		return;   // the 'finished' handler takes care of the rest
 	}
-	if (m_bajada)
-		m_bajada->abort();   // the finished handler cleans up the partial file
-	else if (m_trabajando)
-		acabar(false, tr("Cancelled"));
+	if (m_download)
+		m_download->abort();   // the finished handler cleans up the partial file
+	else if (m_busy)
+		finish(false, tr("Cancelled"));
 }
 
-void Backend::borrarMapa(const QString &region)
+void Backend::deleteMap(const QString &region)
 {
 	if (region.isEmpty() || region.contains(QStringLiteral("..")))
 		return;
-	QDir(baseDatos() + QStringLiteral("/mapas/") + region).removeRecursively();
-	mirarQueHay();
+	QDir(dataDir() + QStringLiteral("/maps/") + region).removeRecursively();
+	rescan();
 }
 
 // --- speech ------------------------------------------------------------------
 
-void Backend::arrancarVoz()
+void Backend::startVoice()
 {
 	if (m_piper) {
 		m_piper->closeWriteChannel();
@@ -728,24 +752,24 @@ void Backend::arrancarVoz()
 		m_aplay->deleteLater();
 		m_aplay = nullptr;
 	}
-	if (m_vozActiva.isEmpty())
+	if (m_activeVoice.isEmpty())
 		return;
 
-	const QString modelo = baseDatos() + QStringLiteral("/voces/")
-		+ m_vozActiva + QStringLiteral(".onnx");
-	if (!QFileInfo::exists(modelo))
+	const QString model = dataDir() + QStringLiteral("/voices/")
+		+ m_activeVoice + QStringLiteral(".onnx");
+	if (!QFileInfo::exists(model))
 		return;
 
 	// The sample rate comes from the model itself. Assuming 22050 works for most
 	// voices and makes the rest unintelligible.
-	int frec = 22050;
-	QFile j(modelo + QStringLiteral(".json"));
+	int rate = 22050;
+	QFile j(model + QStringLiteral(".json"));
 	if (j.open(QIODevice::ReadOnly)) {
 		const QJsonObject o = QJsonDocument::fromJson(j.readAll()).object();
-		frec = o.value(QStringLiteral("audio")).toObject()
-			.value(QStringLiteral("sample_rate")).toInt(frec);
+		rate = o.value(QStringLiteral("audio")).toObject()
+			.value(QStringLiteral("sample_rate")).toInt(rate);
 		if (o.contains(QStringLiteral("sample_rate")))
-			frec = o.value(QStringLiteral("sample_rate")).toInt(frec);
+			rate = o.value(QStringLiteral("sample_rate")).toInt(rate);
 	}
 
 	m_piper = new QProcess(this);
@@ -755,11 +779,11 @@ void Backend::arrancarVoz()
 	m_piper->setStandardOutputProcess(m_aplay);
 	m_aplay->start(QStringLiteral("aplay"),
 		{ QStringLiteral("-q"), QStringLiteral("-t"), QStringLiteral("raw"),
-		  QStringLiteral("-r"), QString::number(frec),
+		  QStringLiteral("-r"), QString::number(rate),
 		  QStringLiteral("-f"), QStringLiteral("S16_LE"),
 		  QStringLiteral("-c"), QStringLiteral("1"), QStringLiteral("-") });
 	m_piper->start(QStringLiteral("piper"),
-		{ QStringLiteral("-m"), modelo, QStringLiteral("--output-raw") });
+		{ QStringLiteral("-m"), model, QStringLiteral("--output-raw") });
 }
 
 // BE QUIET RIGHT NOW, not when the phrase finishes.
@@ -774,7 +798,7 @@ void Backend::arrancarVoz()
 // up. It costs a few seconds of reloading the model, but that only shows on the
 // next phrase, and cancelling a route is not usually followed by another at
 // once.
-void Backend::callar()
+void Backend::stopSpeaking()
 {
 	if (!m_piper && !m_aplay)
 		return;
@@ -795,16 +819,16 @@ void Backend::callar()
 	m_piper = nullptr;
 
 	// And it is brought back up, so the next phrase has someone to say it.
-	arrancarVoz();
+	startVoice();
 }
 
-void Backend::decir(const QString &frase)
+void Backend::speak(const QString &phrase)
 {
-	if (frase.isEmpty())
+	if (phrase.isEmpty())
 		return;
 
 	if (m_piper && m_piper->state() == QProcess::Running) {
-		m_piper->write(frase.toUtf8() + '\n');
+		m_piper->write(phrase.toUtf8() + '\n');
 		return;
 	}
 
@@ -814,34 +838,34 @@ void Backend::decir(const QString &frase)
 	//
 	// -s 165 instead of the default 175: slower reads better over road noise.
 	QProcess::startDetached(QStringLiteral("espeak-ng"),
-		{ QStringLiteral("-v"), m_vozActiva.left(2).isEmpty()
-			? QStringLiteral("es") : m_vozActiva.left(2),
+		{ QStringLiteral("-v"), m_activeVoice.left(2).isEmpty()
+			? QStringLiteral("es") : m_activeVoice.left(2),
 		  QStringLiteral("-s"), QStringLiteral("165"),
 		  QStringLiteral("-a"), QStringLiteral("200"),
-		  QStringLiteral("--"), frase });
+		  QStringLiteral("--"), phrase });
 }
 
 // --- screen ------------------------------------------------------------------
 
-void Backend::mantenerPantalla(bool si)
+void Backend::keepScreenOn(bool on)
 {
-	if (si) {
-		if (m_inhibidor)
+	if (on) {
+		if (m_inhibitor)
 			return;
-		m_inhibidor = new QProcess(this);
+		m_inhibitor = new QProcess(this);
 		// 'idle' only. Not 'sleep': if the driver presses the power button the
 		// phone should sleep, because that is what pressing it means.
-		m_inhibidor->start(QStringLiteral("systemd-inhibit"),
+		m_inhibitor->start(QStringLiteral("systemd-inhibit"),
 			{ QStringLiteral("--what=idle"), QStringLiteral("--who=PocoNav"),
 			  QStringLiteral("--why=navigating"),
 			  QStringLiteral("sh"), QStringLiteral("-c"),
 			  QStringLiteral("while :; do sleep 3600; done") });
 		return;
 	}
-	if (m_inhibidor) {
-		m_inhibidor->kill();
-		m_inhibidor->waitForFinished(1000);
-		m_inhibidor->deleteLater();
-		m_inhibidor = nullptr;
+	if (m_inhibitor) {
+		m_inhibitor->kill();
+		m_inhibitor->waitForFinished(1000);
+		m_inhibitor->deleteLater();
+		m_inhibitor = nullptr;
 	}
 }

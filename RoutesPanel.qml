@@ -30,7 +30,7 @@ Item {
 	// The side margin for EVERYTHING in this panel: the title, the rows and the
 	// buttons fall in the same column. largeSpacing alone fell short and
 	// the route text came out flush to the edge of its own row.
-	readonly property int margen: Math.round(Kirigami.Units.gridUnit * 1.1)
+	readonly property int margin: Math.round(Kirigami.Units.gridUnit * 1.1)
 
 	// THE PANEL PAINTS ITS OWN BACKGROUND, and this is not decoration.
 	//
@@ -44,26 +44,26 @@ Item {
 	// seeing the same screen.
 	Rectangle {
 		anchors.fill: parent
-		color: panel.p.fondo
+		color: panel.p.surface
 	}
 
 	// The planner that feeds us.
 	property var plan: null
 	// Which one is selected, to draw it on the map.
-	property int elegida: 0
+	property int picked: 0
 
-	signal empezar(var entrada)
-	signal simular(var entrada)
-	signal cerrar()
+	signal start(var entry)
+	signal simulate(var entry)
+	signal close()
 
 	// Tapping a row ONLY previews it on the map. The warning that it breaks a
 	// filter comes up on pressing Start, not before: if it popped on every tap, it would be
 	// impossible to compare two routes without fighting a dialog.
-	function elegir(i) {
-		panel.elegida = i
+	function pick(i) {
+		panel.picked = i
 	}
 
-	function _tiempo(min) {
+	function _time(min) {
 		if (min < 60)
 			return qsTr("%1 min").arg(min)
 		const h = Math.floor(min / 60)
@@ -78,16 +78,16 @@ Item {
 	// navigators in the US say and what people expect to hear. The cut-off
 	// is at 528 feet, which is half a mile divided by five -- round in their
 	// system, ugly in ours, and that is why dividing by a thousand does not work.
-	property bool millas: false
+	property bool miles: false
 
 	// The map tiles the chosen route is missing, and whether they can be downloaded.
 	// The window computes them, which is what talks to the backend.
-	property var faltanCuadros: []
-	property bool puedeBajar: false
-	signal bajarMapaRuta()
+	property var missingBoxes: []
+	property bool canDownload: false
+	signal downloadRouteMap()
 
 	function _dist(m) {
-		if (millas) {
+		if (miles) {
 			const mi = m / 1609.344
 			if (mi < 0.1)
 				return Math.round(m * 3.28084 / 10) * 10 + " ft"
@@ -100,20 +100,20 @@ Item {
 		return (m / 1000).toFixed(m < 10000 ? 1 : 0).replace(".", ",") + " km"
 	}
 
-	function _distancia(metros) { return _dist(metros) }
+	function _distance(meters) { return _dist(meters) }
 
-	function _palabra(clave) {
-		if (clave === "peaje") return qsTr("toll")
-		if (clave === "autopista") return qsTr("motorway")
-		if (clave === "ferri") return qsTr("ferry")
-		if (clave === "tierra") return qsTr("unpaved")
-		return clave
+	function _word(key) {
+		if (key === "toll") return qsTr("toll")
+		if (key === "motorway") return qsTr("motorway")
+		if (key === "ferry") return qsTr("ferry")
+		if (key === "unpaved") return qsTr("unpaved")
+		return key
 	}
 
 	ColumnLayout {
 		anchors.fill: parent
-		anchors.leftMargin: panel.margen
-		anchors.rightMargin: panel.margen
+		anchors.leftMargin: panel.margin
+		anchors.rightMargin: panel.margin
 		anchors.topMargin: Kirigami.Units.largeSpacing
 		anchors.bottomMargin: Kirigami.Units.largeSpacing
 		spacing: Kirigami.Units.smallSpacing
@@ -124,22 +124,22 @@ Item {
 
 			QQC2.Label {
 				Layout.fillWidth: true
-				text: panel.plan && panel.plan.nombreDestino
-					? panel.plan.nombreDestino : qsTr("Routes")
-				color: panel.p.tinta
+				text: panel.plan && panel.plan.destinationName
+					? panel.plan.destinationName : qsTr("Routes")
+				color: panel.p.ink
 				font.bold: true
 				font.pointSize: Kirigami.Theme.defaultFont.pointSize * 1.2
 				elide: Text.ElideRight
 			}
 
 			QQC2.AbstractButton {
-				id: cerrarBoton
+				id: dismissButton
 				Layout.preferredWidth: Kirigami.Units.gridUnit * 2.6
 				Layout.preferredHeight: Kirigami.Units.gridUnit * 2.6
-				onClicked: panel.cerrar()
+				onClicked: panel.close()
 				background: Rectangle {
 					radius: height / 2
-					color: cerrarBoton.pressed ? panel.p.tintaSuave : panel.p.fondoAlto
+					color: dismissButton.pressed ? panel.p.inkSoft : panel.p.surfaceHigh
 				}
 				// With its circle and at size: the bare cross on a dark background
 				// did not read as a button.
@@ -150,7 +150,7 @@ Item {
 						height: width
 						source: "dialog-close"
 						isMask: true
-						color: panel.p.tinta
+						color: panel.p.ink
 					}
 				}
 			}
@@ -160,21 +160,21 @@ Item {
 		// staying silent would leave the screen as if nothing had happened.
 		QQC2.Label {
 			Layout.fillWidth: true
-			visible: panel.plan && panel.plan.estado === "pidiendo"
+			visible: panel.plan && panel.plan.status === "pidiendo"
 			text: qsTr("Searching routes…")
-			color: panel.p.tintaSuave
+			color: panel.p.inkSoft
 		}
 
 		QQC2.Label {
 			Layout.fillWidth: true
-			visible: panel.plan && panel.plan.estado === "error"
-			text: panel.plan ? panel.plan.fallo : ""
-			color: panel.p.ambar
+			visible: panel.plan && panel.plan.status === "error"
+			text: panel.plan ? panel.plan.failure : ""
+			color: panel.p.amber
 			wrapMode: Text.WordWrap
 		}
 
 		ListView {
-			id: lista
+			id: items
 			Layout.fillWidth: true
 			// Whatever the rows take, capped. With 'fillHeight' the list
 			// stretched to the bottom and left a huge gap between the last route
@@ -185,7 +185,7 @@ Item {
 			Layout.maximumHeight: parent.height - Kirigami.Units.gridUnit * 9
 			clip: true
 			spacing: Kirigami.Units.smallSpacing
-			model: panel.plan && panel.plan.estado === "listo" ? panel.plan.rutas : []
+			model: panel.plan && panel.plan.status === "ready" ? panel.plan.routes : []
 
 			// IT IS VISIBLE THAT THERE IS MORE BELOW, and both signals are needed.
 			//
@@ -201,10 +201,10 @@ Item {
 			// Both appear ONLY if there is something to scroll: a fixed bar on
 			// a list of three routes would be permanent noise for a case that does
 			// not happen.
-			readonly property bool hayMas: contentHeight > height + 1
+			readonly property bool hasMore: contentHeight > height + 1
 
 			QQC2.ScrollBar.vertical: QQC2.ScrollBar {
-				policy: lista.hayMas ? QQC2.ScrollBar.AlwaysOn
+				policy: items.hasMore ? QQC2.ScrollBar.AlwaysOn
 					: QQC2.ScrollBar.AlwaysOff
 				width: Kirigami.Units.smallSpacing
 				// Always visible while needed, not only when dragging: the
@@ -212,31 +212,31 @@ Item {
 				// -- it reports what you have just discovered on your own.
 				contentItem: Rectangle {
 					radius: width / 2
-					color: panel.p.tintaSuave
+					color: panel.p.inkSoft
 					opacity: 0.7
 				}
 			}
 
 			delegate: QQC2.AbstractButton {
-				id: fila
+				id: row
 				required property int index
 				required property var modelData
 
 				width: ListView.view.width
 				height: Kirigami.Units.gridUnit * 4.6
-				onClicked: panel.elegir(fila.index)
+				onClicked: panel.pick(row.index)
 
-				readonly property bool puesta: panel.elegida === fila.index
-				readonly property bool rompe: modelData.aviso.length > 0
+				readonly property bool selected: panel.picked === row.index
+				readonly property bool breaks: modelData.warning.length > 0
 
 				background: Rectangle {
-					radius: panel.p.radio
+					radius: panel.p.cornerRadius
 					// The chosen one in blue, like the line drawn on the map:
 					// both things have to say "this one" without reading anything.
-					color: fila.puesta ? panel.p.azul
-						: (fila.pressed ? panel.p.fondoAlto : "transparent")
-					border.width: fila.puesta ? 0 : 1
-					border.color: panel.p.fondoAlto
+					color: row.selected ? panel.p.blue
+						: (row.pressed ? panel.p.surfaceHigh : "transparent")
+					border.width: row.selected ? 0 : 1
+					border.color: panel.p.surfaceHigh
 				}
 
 				contentItem: RowLayout {
@@ -253,40 +253,40 @@ Item {
 						RowLayout {
 							spacing: Kirigami.Units.smallSpacing
 							QQC2.Label {
-								text: panel._tiempo(fila.modelData.minutos)
-								color: fila.puesta ? panel.p.blanco : panel.p.tinta
+								text: panel._time(row.modelData.minutes)
+								color: row.selected ? panel.p.white : panel.p.ink
 								font.bold: true
 								font.pointSize: Kirigami.Theme.defaultFont.pointSize * 1.35
 							}
 							// The first one that complies is the recommended one, and it is said.
 							// Without this, "why it is on top" is a guessing game.
 							Rectangle {
-								visible: fila.index === 0 && !fila.rompe
+								visible: row.index === 0 && !row.breaks
 								radius: height / 2
-								color: fila.puesta ? panel.p.blanco : panel.p.verde
-								implicitWidth: mejor.implicitWidth
+								color: row.selected ? panel.p.white : panel.p.green
+								implicitWidth: best.implicitWidth
 									+ Kirigami.Units.largeSpacing
-								implicitHeight: mejor.implicitHeight
+								implicitHeight: best.implicitHeight
 									+ Kirigami.Units.smallSpacing
 								QQC2.Label {
-									id: mejor
+									id: best
 									anchors.centerIn: parent
 									text: qsTr("best")
 									font.bold: true
 									font.pointSize: Kirigami.Theme.smallFont.pointSize
-									color: fila.puesta ? panel.p.azul : panel.p.blanco
+									color: row.selected ? panel.p.blue : panel.p.white
 								}
 							}
 						}
 
 						QQC2.Label {
 							Layout.fillWidth: true
-							text: panel._distancia(fila.modelData.metros)
-								+ (fila.modelData.resumen
-									? "  ·  " + fila.modelData.resumen : "")
-							color: fila.puesta ? panel.p.blanco : panel.p.tintaSuave
+							text: panel._distance(row.modelData.meters)
+								+ (row.modelData.summary
+									? "  ·  " + row.modelData.summary : "")
+							color: row.selected ? panel.p.white : panel.p.inkSoft
 							elide: Text.ElideRight
-							opacity: fila.puesta ? 0.9 : 1
+							opacity: row.selected ? 0.9 : 1
 						}
 					}
 
@@ -295,29 +295,29 @@ Item {
 						Layout.rightMargin: Kirigami.Units.largeSpacing
 						spacing: Kirigami.Units.smallSpacing
 						Repeater {
-							model: fila.modelData.aviso
+							model: row.modelData.warning
 							delegate: Rectangle {
 								required property string modelData
 								radius: height / 2
-								color: panel.p.ambar
-								implicitWidth: aviso.implicitWidth
+								color: panel.p.amber
+								implicitWidth: warning.implicitWidth
 									+ Kirigami.Units.largeSpacing
-								implicitHeight: aviso.implicitHeight
+								implicitHeight: warning.implicitHeight
 									+ Kirigami.Units.smallSpacing
 								RowLayout {
-									id: aviso
+									id: warning
 									anchors.centerIn: parent
 									spacing: 2
 									QQC2.Label {
 										text: "!"
 										font.bold: true
-										color: panel.p.tintaOscura
+										color: panel.p.inkDark
 									}
 									QQC2.Label {
-										text: panel._palabra(modelData)
+										text: panel._word(modelData)
 										font.bold: true
 										font.pointSize: Kirigami.Theme.smallFont.pointSize
-										color: panel.p.tintaOscura
+										color: panel.p.inkDark
 									}
 								}
 							}
@@ -343,10 +343,10 @@ Item {
 				y: -Kirigami.Units.gridUnit * 1.6
 				width: parent.width
 				height: Kirigami.Units.gridUnit * 1.6
-                visible: lista.hayMas && !lista.atYEnd
+                visible: items.hasMore && !items.atYEnd
 				gradient: Gradient {
 					GradientStop { position: 0.0; color: "transparent" }
-					GradientStop { position: 1.0; color: panel.p.fondo }
+					GradientStop { position: 1.0; color: panel.p.surface }
 				}
 			}
 		}
@@ -367,16 +367,16 @@ Item {
 			Layout.fillWidth: true
 			Layout.preferredHeight: Kirigami.Units.gridUnit * 2.8
 			Layout.bottomMargin: Kirigami.Units.smallSpacing
-			visible: panel.faltanCuadros.length > 0 && panel.puedeBajar
+			visible: panel.missingBoxes.length > 0 && panel.canDownload
 			radius: height / 2
-			color: bajar.pressed ? panel.p.fondoAlto : "transparent"
-			border.color: panel.p.ambar
+			color: download.pressed ? panel.p.surfaceHigh : "transparent"
+			border.color: panel.p.amber
 			border.width: 1
 
 			TapHandler {
-				id: bajar
+				id: download
 				gesturePolicy: TapHandler.DragThreshold
-				onTapped: panel.bajarMapaRuta()
+				onTapped: panel.downloadRouteMap()
 			}
 
 			QQC2.Label {
@@ -384,16 +384,16 @@ Item {
 				width: parent.width - Kirigami.Units.gridUnit
 				horizontalAlignment: Text.AlignHCenter
 				elide: Text.ElideRight
-				color: panel.p.tinta
+				color: panel.p.ink
 				font.pointSize: Kirigami.Theme.defaultFont.pointSize * 0.95
 				// THE SIZE IS STATED, not hidden: it is about 130 MB per area
 				// -- measured, 113 and 112 for the two that are downloaded -- and that is
 				// decided very differently on wifi than on data.
-				text: panel.faltanCuadros.length === 1
+				text: panel.missingBoxes.length === 1
 					? qsTr("Download the map for this route · about 130 MB")
 					: qsTr("Download the map for this route · %1 areas, about %2 MB")
-						.arg(panel.faltanCuadros.length)
-						.arg(panel.faltanCuadros.length * 130)
+						.arg(panel.missingBoxes.length)
+						.arg(panel.missingBoxes.length * 130)
 			}
 		}
 
@@ -410,61 +410,61 @@ Item {
 		// application behaves in motion without getting in the car -- with the phone on the table,
 		// the GPS always gives the same point and that half cannot be looked at.
 		QQC2.AbstractButton {
-			id: simularBoton
+			id: simulateButton
 			Layout.preferredWidth: Kirigami.Units.gridUnit * 6
 			Layout.preferredHeight: Kirigami.Units.gridUnit * 3.4
-			enabled: panel.plan && panel.plan.estado === "listo"
-				&& panel.plan.rutas.length > 0
-			onClicked: panel.simular(panel.plan.rutas[panel.elegida])
+			enabled: panel.plan && panel.plan.status === "ready"
+				&& panel.plan.routes.length > 0
+			onClicked: panel.simulate(panel.plan.routes[panel.picked])
 			background: Rectangle {
 				radius: height / 2
-				color: simularBoton.pressed ? panel.p.fondoAlto : "transparent"
+				color: simulateButton.pressed ? panel.p.surfaceHigh : "transparent"
 				border.width: 1
-				border.color: panel.p.tintaSuave
+				border.color: panel.p.inkSoft
 			}
 			contentItem: QQC2.Label {
 				text: qsTr("Simulate")
-				color: panel.p.tinta
+				color: panel.p.ink
 				horizontalAlignment: Text.AlignHCenter
 				verticalAlignment: Text.AlignVCenter
 			}
 		}
 
 		QQC2.AbstractButton {
-			id: cancelarBoton
+			id: cancelButton
 			Layout.preferredWidth: Kirigami.Units.gridUnit * 6
 			Layout.preferredHeight: Kirigami.Units.gridUnit * 3.4
-			onClicked: panel.cerrar()
+			onClicked: panel.close()
 			background: Rectangle {
 				radius: height / 2
-				color: cancelarBoton.pressed ? panel.p.fondoAlto : "transparent"
+				color: cancelButton.pressed ? panel.p.surfaceHigh : "transparent"
 				border.width: 1
-				border.color: panel.p.tintaSuave
+				border.color: panel.p.inkSoft
 			}
 			contentItem: QQC2.Label {
 				text: qsTr("Cancel")
-				color: panel.p.tinta
+				color: panel.p.ink
 				horizontalAlignment: Text.AlignHCenter
 				verticalAlignment: Text.AlignVCenter
 			}
 		}
 
 		QQC2.AbstractButton {
-			id: empezarBoton
+			id: startButton
 			Layout.fillWidth: true
 			Layout.preferredHeight: Kirigami.Units.gridUnit * 3.4
-			enabled: panel.plan && panel.plan.estado === "listo"
-				&& panel.plan.rutas.length > 0
-			onClicked: panel.empezar(panel.plan.rutas[panel.elegida])
+			enabled: panel.plan && panel.plan.status === "ready"
+				&& panel.plan.routes.length > 0
+			onClicked: panel.start(panel.plan.routes[panel.picked])
 			background: Rectangle {
 				radius: height / 2
-				color: empezarBoton.enabled
-					? (empezarBoton.pressed ? panel.p.azulCasco : panel.p.azul)
-					: panel.p.fondoAlto
+				color: startButton.enabled
+					? (startButton.pressed ? panel.p.blueCasing : panel.p.blue)
+					: panel.p.surfaceHigh
 			}
 			contentItem: QQC2.Label {
 				text: qsTr("Start")
-				color: panel.p.blanco
+				color: panel.p.white
 				font.bold: true
 				font.pointSize: Kirigami.Theme.defaultFont.pointSize * 1.15
 				horizontalAlignment: Text.AlignHCenter

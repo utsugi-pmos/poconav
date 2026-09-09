@@ -18,8 +18,8 @@
 // without looking. And the support text goes BELOW each title, in grey, instead of in
 // a paragraph at the end of the section -- this way each option is explained where you touch it.
 //
-// Everything touched here asks the backend directly -- 'app.bajarVoz',
-// 'app.bajarMapa' -- and the progress arrives through its properties. There is no file
+// Everything touched here asks the backend directly -- 'app.downloadVoice',
+// 'app.downloadMap' -- and the progress arrives through its properties. There is no file
 // in between and nobody polling: the bar moves because a property changed.
 import QtQuick
 import QtQuick.Controls as QQC2
@@ -27,12 +27,12 @@ import QtQuick.Layouts
 import org.kde.kirigami as Kirigami
 
 Item {
-	id: ajustes
+	id: settings
 
 	readonly property var p: Theme
 
 	// The region written last time, so you do not type it again.
-	property alias region: campoRegion.text
+	property alias region: regionField.text
 
 	// WHERE THE PHONE IS, so the map "around here" can be downloaded.
 	//
@@ -40,22 +40,22 @@ Item {
 	// each -- and downloading the one underneath is what turns "the map of Spain"
 	// into something that fits in a spell of wifi. Without a position you cannot choose
 	// a tile and the whole region is downloaded, which is what there used to be.
-	property real miLat: 0
-	property real miLon: 0
-	readonly property bool tengoDonde: miLat !== 0 || miLon !== 0
+	property real myLat: 0
+	property real myLon: 0
+	readonly property bool knowWhere: myLat !== 0 || myLon !== 0
 
 	// A single side margin for EVERYTHING. Before, each block carried its own and the
 	// texts did not fall in the same column.
-	readonly property int margen: Math.round(Kirigami.Units.gridUnit * 1.2)
-	readonly property int altoFila: Math.round(Kirigami.Units.gridUnit * 3.6)
+	readonly property int margin: Math.round(Kirigami.Units.gridUnit * 1.2)
+	readonly property int rowHeight: Math.round(Kirigami.Units.gridUnit * 3.6)
 
 	// A single column for the WHOLE screen: the top bar, the download
 	// bar and the rows. Centring only the body left the "Settings" title
 	// stuck to the left edge and the rows a hand's width away, with nothing to
 	// relate them. The width is what a settings line comfortably takes;
 	// more than that, in landscape, separates the title from its control by half a screen.
-	readonly property int anchoUtil: Math.min(width, Kirigami.Units.gridUnit * 34)
-	readonly property int sangria: Math.round((width - anchoUtil) / 2)
+	readonly property int usableWidth: Math.min(width, Kirigami.Units.gridUnit * 34)
+	readonly property int indent: Math.round((width - usableWidth) / 2)
 
 	visible: false
 	anchors.fill: parent
@@ -63,34 +63,34 @@ Item {
 	// The voices Piper offers. The whole repository catalog is NOT read on
 	// purpose: there are several hundred, and choosing among eight is a decision --
 	// among three hundred, a maze. The download path is deduced from the name.
-	readonly property var voces: [
-		{ id: "es_ES-davefx-medium",   nombre: "Dave",     idioma: "Spanish (Spain)" },
-		{ id: "es_ES-sharvard-medium", nombre: "Sharvard", idioma: "Spanish (Spain)" },
-		{ id: "es_MX-claude-high",     nombre: "Claude",   idioma: "Spanish (Mexico)" },
-		{ id: "en_GB-alba-medium",     nombre: "Alba",     idioma: "English (UK)" },
-		{ id: "en_US-amy-medium",      nombre: "Amy",      idioma: "English (US)" },
-		{ id: "fr_FR-siwis-medium",    nombre: "Siwis",    idioma: "French" },
-		{ id: "de_DE-thorsten-medium", nombre: "Thorsten", idioma: "German" },
-		{ id: "pt_PT-tugao-medium",    nombre: "Tugão",    idioma: "Portuguese" }
+	readonly property var voices: [
+		{ id: "es_ES-davefx-medium",   name: "Dave",     language: "Spanish (Spain)" },
+		{ id: "es_ES-sharvard-medium", name: "Sharvard", language: "Spanish (Spain)" },
+		{ id: "es_MX-claude-high",     name: "Claude",   language: "Spanish (Mexico)" },
+		{ id: "en_GB-alba-medium",     name: "Alba",     language: "English (UK)" },
+		{ id: "en_US-amy-medium",      name: "Amy",      language: "English (US)" },
+		{ id: "fr_FR-siwis-medium",    name: "Siwis",    language: "French" },
+		{ id: "de_DE-thorsten-medium", name: "Thorsten", language: "German" },
+		{ id: "pt_PT-tugao-medium",    name: "Tugão",    language: "Portuguese" }
 	]
 
 	// What is set and what is chosen. The settings store nothing:
 	// the window stores it, which is what holds the memory.
-	property string tema: "auto"
-	property string unidades: "auto"
-	property bool esNoche: false
-	property bool millas: false
-	signal ponerTema(string cual)
-	signal ponerUnidades(string cual)
+	property string theme: "auto"
+	property string units: "auto"
+	property bool nightMode: false
+	property bool miles: false
+	signal setTheme(string which)
+	signal setUnits(string which)
 
-	function abrir() { visible = true }
-	function cerrar() { visible = false }
+	function open() { visible = true }
+	function close() { visible = false }
 
 	// Opaque and full screen: nothing behind should distract, and this way
 	// no veils or shadows are needed either.
 	Rectangle {
 		anchors.fill: parent
-		color: ajustes.p.fondo
+		color: settings.p.surface
 	}
 
 	// It swallows any tap that misses a row, so it does not reach the
@@ -103,7 +103,7 @@ Item {
 	MouseArea {
 		anchors.fill: parent
 		propagateComposedEvents: true
-		onPressed: (evento) => evento.accepted = false
+		onPressed: (event) => event.accepted = false
 	}
 
 	// --- a menu row, which is what the screen is made of ----------------------
@@ -118,24 +118,24 @@ Item {
 	// accepted until the finger is lifted without having moved. If you move,
 	// the scroll takes the gesture, which is exactly what you
 	// expect from a list.
-	component Fila: Item {
+	component SettingRow: Item {
 		id: f
-		property string titulo: ""
-		property string apoyo: ""
-		property bool separador: true
+		property string title: ""
+		property string hint: ""
+		property bool separator: true
 		// 'enabled' is NOT declared: Item already has it, and redeclaring it
 		// hides it. Qt warns about it ("overrides a member of the base object") and
 		// the winner is not always the one you think.
-		property Component derecha: null
+		property Component rightItem: null
 		signal clicked()
 
-		readonly property bool pressed: toque.pressed
+		readonly property bool pressed: tap.pressed
 
 		Layout.fillWidth: true
-		Layout.preferredHeight: ajustes.altoFila
+		Layout.preferredHeight: settings.rowHeight
 
 		TapHandler {
-			id: toque
+			id: tap
 			enabled: f.enabled
 			gesturePolicy: TapHandler.DragThreshold
 			onTapped: f.clicked()
@@ -143,17 +143,17 @@ Item {
 
 		Rectangle {
 			anchors.fill: parent
-			color: f.pressed && f.enabled ? ajustes.p.fondoAlto : "transparent"
+			color: f.pressed && f.enabled ? settings.p.surfaceHigh : "transparent"
 			// The line goes at the bottom and indented to where the text starts, not from
 			// edge to edge: this way it groups the rows instead of chopping up the screen.
 			Rectangle {
-				visible: f.separador
+				visible: f.separator
 				anchors.bottom: parent.bottom
 				anchors.left: parent.left
 				anchors.right: parent.right
-				anchors.leftMargin: ajustes.margen
+				anchors.leftMargin: settings.margin
 				height: 1
-				color: ajustes.p.fondoAlto
+				color: settings.p.surfaceHigh
 			}
 		}
 
@@ -163,7 +163,7 @@ Item {
 
 			ColumnLayout {
 				Layout.fillWidth: true
-				Layout.leftMargin: ajustes.margen
+				Layout.leftMargin: settings.margin
 				spacing: 1
 
 				// The two sizes are TIED to the interface size, not taken from
@@ -171,8 +171,8 @@ Item {
 				// normal font, and the subtitle swallowed the title.
 				QQC2.Label {
 					Layout.fillWidth: true
-					text: f.titulo
-					color: f.enabled ? ajustes.p.tinta : ajustes.p.tintaSuave
+					text: f.title
+					color: f.enabled ? settings.p.ink : settings.p.inkSoft
 					font.pointSize: Kirigami.Theme.defaultFont.pointSize * 1.05
 					elide: Text.ElideRight
 					wrapMode: Text.WordWrap
@@ -180,9 +180,9 @@ Item {
 				}
 				QQC2.Label {
 					Layout.fillWidth: true
-					visible: f.apoyo.length > 0
-					text: f.apoyo
-					color: ajustes.p.tintaSuave
+					visible: f.hint.length > 0
+					text: f.hint
+					color: settings.p.inkSoft
 					font.pointSize: Kirigami.Theme.defaultFont.pointSize * 0.85
 					elide: Text.ElideRight
 				}
@@ -193,11 +193,11 @@ Item {
 			Item {
 				Layout.preferredWidth: Kirigami.Units.gridUnit * 3
 				Layout.fillHeight: true
-				Layout.rightMargin: ajustes.margen
+				Layout.rightMargin: settings.margin
 
 				Loader {
 					anchors.centerIn: parent
-					sourceComponent: f.derecha
+					sourceComponent: f.rightItem
 				}
 			}
 		}
@@ -206,35 +206,35 @@ Item {
 	// Three options in a row, segmented-switch style: to choose among
 	// three short things, a list of three rows wastes half a screen and a dropdown
 	// menu hides the options behind an extra tap.
-	component Opciones: RowLayout {
+	component Options: RowLayout {
 		id: op
-		property var claves: []
-		property var etiquetas: []
-		property string puesta: ""
-		signal elegida(string clave)
+		property var keys: []
+		property var labels: []
+		property string selected: ""
+		signal picked(string key)
 
 		spacing: Kirigami.Units.smallSpacing
 
 		Repeater {
-			model: op.claves.length
+			model: op.keys.length
 			delegate: QQC2.AbstractButton {
 				id: bo
 				required property int index
 				Layout.fillWidth: true
 				Layout.preferredWidth: 0
 				Layout.preferredHeight: Kirigami.Units.gridUnit * 2.6
-				onClicked: op.elegida(op.claves[bo.index])
+				onClicked: op.picked(op.keys[bo.index])
 				background: Rectangle {
 					radius: height / 2
-					color: op.puesta === op.claves[bo.index] ? ajustes.p.azul
-						: (bo.pressed ? ajustes.p.fondoAlto : "transparent")
-					border.width: op.puesta === op.claves[bo.index] ? 0 : 1
-					border.color: ajustes.p.fondoAlto
+					color: op.selected === op.keys[bo.index] ? settings.p.blue
+						: (bo.pressed ? settings.p.surfaceHigh : "transparent")
+					border.width: op.selected === op.keys[bo.index] ? 0 : 1
+					border.color: settings.p.surfaceHigh
 				}
 				contentItem: QQC2.Label {
-					text: op.etiquetas[bo.index]
-					color: op.puesta === op.claves[bo.index]
-						? ajustes.p.blanco : ajustes.p.tinta
+					text: op.labels[bo.index]
+					color: op.selected === op.keys[bo.index]
+						? settings.p.white : settings.p.ink
 					font.pointSize: Kirigami.Theme.defaultFont.pointSize * 0.95
 					horizontalAlignment: Text.AlignHCenter
 					verticalAlignment: Text.AlignVCenter
@@ -244,13 +244,13 @@ Item {
 		}
 	}
 
-	component Encabezado: QQC2.Label {
+	component SectionHeader: QQC2.Label {
 		Layout.fillWidth: true
 		Layout.preferredHeight: Kirigami.Units.gridUnit * 2.8
-		leftPadding: ajustes.margen
+		leftPadding: settings.margin
 		verticalAlignment: Text.AlignBottom
 		bottomPadding: Kirigami.Units.smallSpacing
-		color: ajustes.p.azulClaro
+		color: settings.p.lightBlue
 		font.bold: true
 		font.pointSize: Kirigami.Theme.defaultFont.pointSize * 0.9
 	}
@@ -263,24 +263,24 @@ Item {
 		Rectangle {
 			Layout.fillWidth: true
 			Layout.preferredHeight: Kirigami.Units.gridUnit * 3.6
-			color: ajustes.p.fondo
+			color: settings.p.surface
 
 			RowLayout {
 				anchors.fill: parent
-				anchors.leftMargin: ajustes.sangria + Kirigami.Units.smallSpacing
-				anchors.rightMargin: ajustes.sangria + ajustes.margen
+				anchors.leftMargin: settings.indent + Kirigami.Units.smallSpacing
+				anchors.rightMargin: settings.indent + settings.margin
 				spacing: Kirigami.Units.smallSpacing
 
 				// A back arrow, not a cross in the corner: on a full
 				// screen what you expect is to go back.
 				QQC2.AbstractButton {
-					id: volver
+					id: back
 					Layout.preferredWidth: Kirigami.Units.gridUnit * 3
 					Layout.preferredHeight: Kirigami.Units.gridUnit * 3
-					onClicked: ajustes.cerrar()
+					onClicked: settings.close()
 					background: Rectangle {
 						radius: height / 2
-						color: volver.pressed ? ajustes.p.tintaSuave : ajustes.p.fondoAlto
+						color: back.pressed ? settings.p.inkSoft : settings.p.surfaceHigh
 					}
 					// Full size, and white. Before it was a thin grey arrow on
 					// grey and did not read as a button.
@@ -291,7 +291,7 @@ Item {
 							height: width
 							source: "draw-arrow-back"
 							isMask: true
-							color: ajustes.p.tinta
+							color: settings.p.ink
 						}
 					}
 				}
@@ -299,7 +299,7 @@ Item {
 				QQC2.Label {
 					Layout.fillWidth: true
 					text: qsTr("Settings")
-					color: ajustes.p.tinta
+					color: settings.p.ink
 					font.bold: true
 					font.pointSize: Kirigami.Theme.defaultFont.pointSize * 1.25
 				}
@@ -309,7 +309,7 @@ Item {
 				anchors.bottom: parent.bottom
 				width: parent.width
 				height: 1
-				color: ajustes.p.fondoAlto
+				color: settings.p.surfaceHigh
 			}
 		}
 
@@ -319,46 +319,46 @@ Item {
 		Rectangle {
 			Layout.fillWidth: true
 			Layout.preferredHeight: Kirigami.Units.gridUnit * 3.2
-			visible: app.trabajando
-			color: ajustes.p.fondoAlto
+			visible: app.busy
+			color: settings.p.surfaceHigh
 			clip: true
 
 			Rectangle {
 				anchors.left: parent.left
 				anchors.top: parent.top
 				anchors.bottom: parent.bottom
-				width: parent.width * Math.max(0, Math.min(100, app.tareaPct)) / 100
-				color: ajustes.p.azul
+				width: parent.width * Math.max(0, Math.min(100, app.taskPct)) / 100
+				color: settings.p.blue
 				Behavior on width { NumberAnimation { duration: 200 } }
 			}
 
 			RowLayout {
 				anchors.fill: parent
-				anchors.leftMargin: ajustes.sangria + ajustes.margen
-				anchors.rightMargin: ajustes.sangria + Kirigami.Units.smallSpacing
+				anchors.leftMargin: settings.indent + settings.margin
+				anchors.rightMargin: settings.indent + Kirigami.Units.smallSpacing
 				spacing: Kirigami.Units.largeSpacing
 
 				QQC2.Label {
 					Layout.fillWidth: true
-					text: qsTr("%1  %2%").arg(app.tareaTexto).arg(app.tareaPct)
-					color: ajustes.p.blanco
+					text: qsTr("%1  %2%").arg(app.taskText).arg(app.taskPct)
+					color: settings.p.white
 					font.bold: true
 					elide: Text.ElideRight
 				}
 
 				QQC2.AbstractButton {
-					id: cancelarBoton
+					id: cancelButton
 					Layout.preferredWidth: Kirigami.Units.gridUnit * 2.8
 					Layout.preferredHeight: Kirigami.Units.gridUnit * 2.8
-					onClicked: app.cancelar()
+					onClicked: app.cancel()
 					background: Rectangle {
 						radius: height / 2
-						color: cancelarBoton.pressed ? ajustes.p.rojo : "transparent"
+						color: cancelButton.pressed ? settings.p.red : "transparent"
 					}
 					contentItem: Kirigami.Icon {
 						source: "dialog-cancel"
 						isMask: true
-						color: ajustes.p.blanco
+						color: settings.p.white
 					}
 				}
 			}
@@ -368,7 +368,7 @@ Item {
 		Flickable {
 			Layout.fillWidth: true
 			Layout.fillHeight: true
-			contentHeight: cuerpo.implicitHeight
+			contentHeight: body.implicitHeight
 			clip: true
 			boundsBehavior: Flickable.StopAtBounds
 			// No 'pressDelay': not needed any more since the rows use a
@@ -379,102 +379,102 @@ Item {
 			QQC2.ScrollBar.vertical: QQC2.ScrollBar { }
 
 			ColumnLayout {
-				id: cuerpo
+				id: body
 				// Bounded and centred width. Across a landscape screen
 				// -- 1200 px -- the title sits all the way to the left and its
 				// control all the way to the right, with half a metre of nothing between:
 				// you have to sweep the whole row with your eyes to relate the
 				// two things. 34 units is what a settings line comfortably
 				// takes without them coming apart.
-				width: ajustes.anchoUtil
-				x: ajustes.sangria
+				width: settings.usableWidth
+				x: settings.indent
 				spacing: 0
 
 				// --- appearance ---------------------------------------------
-				Encabezado { text: qsTr("APPEARANCE") }
+				SectionHeader { text: qsTr("APPEARANCE") }
 
 				Item {
 					Layout.fillWidth: true
-					Layout.preferredHeight: ajustes.altoFila
-					Opciones {
+					Layout.preferredHeight: settings.rowHeight
+					Options {
 						anchors.fill: parent
-						anchors.leftMargin: ajustes.margen
-						anchors.rightMargin: ajustes.margen
+						anchors.leftMargin: settings.margin
+						anchors.rightMargin: settings.margin
 						anchors.topMargin: Kirigami.Units.smallSpacing
 						anchors.bottomMargin: Kirigami.Units.smallSpacing
-						claves: ["light", "dark", "auto"]
-						etiquetas: [qsTr("Light"), qsTr("Dark"), qsTr("Automatic")]
-						puesta: ajustes.tema
-						onElegida: (c) => ajustes.ponerTema(c)
+						keys: ["light", "dark", "auto"]
+						labels: [qsTr("Light"), qsTr("Dark"), qsTr("Automatic")]
+						selected: settings.theme
+						onPicked: (c) => settings.setTheme(c)
 					}
 				}
 
-				Fila {
-					titulo: ajustes.tema === "auto"
-						? (ajustes.esNoche
+				SettingRow {
+					title: settings.theme === "auto"
+						? (settings.nightMode
 							? qsTr("It is night where you are now")
 							: qsTr("It is day where you are now"))
 						: qsTr("Automatic switches on its own at nightfall")
-					apoyo: ajustes.tema === "auto"
+					hint: settings.theme === "auto"
 						? qsTr("the sunset time is computed from your position and the date")
 						: qsTr("with the map dark and the panels off")
 					enabled: false
-					separador: false
+					separator: false
 				}
 
 				// --- units --------------------------------------------------
-				Encabezado { text: qsTr("DISTANCES") }
+				SectionHeader { text: qsTr("DISTANCES") }
 
 				Item {
 					Layout.fillWidth: true
-					Layout.preferredHeight: ajustes.altoFila
-					Opciones {
+					Layout.preferredHeight: settings.rowHeight
+					Options {
 						anchors.fill: parent
-						anchors.leftMargin: ajustes.margen
-						anchors.rightMargin: ajustes.margen
+						anchors.leftMargin: settings.margin
+						anchors.rightMargin: settings.margin
 						anchors.topMargin: Kirigami.Units.smallSpacing
 						anchors.bottomMargin: Kirigami.Units.smallSpacing
-						claves: ["km", "millas", "auto"]
-						etiquetas: [qsTr("Kilometres"), qsTr("Miles"), qsTr("Automatic")]
-						puesta: ajustes.unidades
-						onElegida: (c) => ajustes.ponerUnidades(c)
+						keys: ["km", "miles", "auto"]
+						labels: [qsTr("Kilometres"), qsTr("Miles"), qsTr("Automatic")]
+						selected: settings.units
+						onPicked: (c) => settings.setUnits(c)
 					}
 				}
 
-				Fila {
-					titulo: ajustes.unidades === "auto"
-						? (ajustes.millas
+				SettingRow {
+					title: settings.units === "auto"
+						? (settings.miles
 							? qsTr("Now: miles, by the system language")
 							: qsTr("Now: kilometres, by the system language"))
 						: qsTr("Automatic takes it from the system language")
-					apoyo: qsTr("also governs what the voice says")
+					hint: qsTr("also governs what the voice says")
 					enabled: false
-					separador: false
+					separator: false
 				}
 
 				// --- voice --------------------------------------------------
-				Encabezado { text: qsTr("VOICE") }
+				SectionHeader { text: qsTr("VOICE") }
 
 				Repeater {
-					model: ajustes.voces
-					delegate: Fila {
-						id: filaVoz
+					model: settings.voices
+					delegate: SettingRow {
+						id: voiceRow
 						required property var modelData
-						readonly property bool instalada:
-							app.voces.indexOf(modelData.id) >= 0
-						readonly property bool puesta: app.vozActiva === modelData.id
+						readonly property bool installed:
+							app.voices.indexOf(modelData.id) >= 0
+						readonly property bool selected: app.activeVoice === modelData.id
 
-						titulo: modelData.nombre
-						apoyo: instalada
-							? (puesta ? qsTr("%1 · in use").arg(modelData.idioma)
-								: modelData.idioma)
-							: modelData.idioma + qsTr(" · tap to download, 60 MB")
-						enabled: !app.trabajando
+						title: modelData.name
+						hint: installed
+							? (selected ? qsTr("%1 · in use").arg(modelData.language)
+								: modelData.language)
+							: modelData.language + qsTr(" · tap to download, 60 MB")
+						enabled: !app.busy
 						onClicked: {
-							if (filaVoz.instalada)
-								app.vozActiva = filaVoz.modelData.id
+							if (voiceRow.installed)
+								app.activeVoice = voiceRow.modelData.id
 							else
-								app.bajarVoz(filaVoz.modelData.id)
+								app.downloadVoice(voiceRow.modelData.id)
 						}
 
 						// A ROUND SELECTOR, not a mark that appears and
@@ -485,7 +485,7 @@ Item {
 						// The empty circle says "this can be chosen"; the full one,
 						// "this is it". And the download arrow marks the ones that are not
 						// even here yet, because tapping them does something else.
-						derecha: Item {
+						rightItem: Item {
 							width: Kirigami.Units.gridUnit * 1.6
 							height: width
 
@@ -494,67 +494,67 @@ Item {
 								anchors.centerIn: parent
 								width: Kirigami.Units.iconSizes.smallMedium
 								height: width
-								visible: !filaVoz.instalada
+								visible: !voiceRow.installed
 								source: "download"
 								isMask: true
-								color: ajustes.p.tintaSuave
+								color: settings.p.inkSoft
 							}
 
 							// Downloaded: round selector.
 							Rectangle {
 								anchors.centerIn: parent
-								visible: filaVoz.instalada
+								visible: voiceRow.installed
 								width: Kirigami.Units.gridUnit * 1.4
 								height: width
 								radius: width / 2
 								color: "transparent"
 								border.width: 2
-								border.color: filaVoz.puesta ? ajustes.p.verde
-									: ajustes.p.tintaSuave
+								border.color: voiceRow.selected ? settings.p.green
+									: settings.p.inkSoft
 
 								Rectangle {
 									anchors.centerIn: parent
-									visible: filaVoz.puesta
+									visible: voiceRow.selected
 									width: parent.width * 0.55
 									height: width
 									radius: width / 2
-									color: ajustes.p.verde
+									color: settings.p.green
 								}
 							}
 						}
 					}
 				}
 
-				Fila {
-					titulo: app.voces.length > 0
+				SettingRow {
+					title: app.voices.length > 0
 						? qsTr("Tap a downloaded one to use it")
 						: qsTr("With no voice downloaded espeak speaks: understandable, but a robot")
-					apoyo: app.voces.length > 0
+					hint: app.voices.length > 0
 						? qsTr("the voice in use also sets the application language")
 						: ""
 					enabled: false
-					separador: false
+					separator: false
 				}
 
 				// --- maps ---------------------------------------------------
-				Encabezado { text: qsTr("OFFLINE MAPS") }
+				SectionHeader { text: qsTr("OFFLINE MAPS") }
 
 				Repeater {
-					model: app.mapas
-					delegate: Fila {
-						id: filaMapa
+					model: app.maps
+					delegate: SettingRow {
+						id: mapRow
 						required property string modelData
 						// Whether it can also be DRAWN out of coverage. They are two
 						// different downloads -- for Spain, 1.1 GB of being able to go
 						// against 1.9 GB of being able to see -- and saying it here avoids the
 						// surprise of leaving home with "map downloaded" and
 						// finding the screen blank when the signal drops.
-						readonly property bool sePinta:
-							app.dibujables.indexOf(modelData) >= 0
-						titulo: modelData
-						apoyo: sePinta ? qsTr("routes, search and map on the phone")
+						readonly property bool isDrawn:
+							app.drawables.indexOf(modelData) >= 0
+						title: modelData
+						hint: isDrawn ? qsTr("routes, search and map on the phone")
 							: qsTr("routes and search; the map needs network")
-						enabled: !app.trabajando
+						enabled: !app.busy
 						// The whole row downloads the drawing for AROUND HERE when it is missing. There
 						// is no separate button because the action is the same as what the
 						// support text says: complete what this region is missing.
@@ -564,23 +564,23 @@ Item {
 						// tile as they pass through, which is what is really
 						// needed.
 						onClicked: {
-							if (sePinta || app.trabajando)
+							if (isDrawn || app.busy)
 								return
-							if (ajustes.tengoDonde)
-								app.bajarDibujoCerca(filaMapa.modelData,
-									ajustes.miLat, ajustes.miLon, 0)
+							if (settings.knowWhere)
+								app.downloadDrawingNear(mapRow.modelData,
+									settings.myLat, settings.myLon, 0)
 							else
-								app.bajarDibujo(filaMapa.modelData)
+								app.downloadDrawing(mapRow.modelData)
 						}
-						derecha: QQC2.AbstractButton {
-							id: borrar
+						rightItem: QQC2.AbstractButton {
+							id: remove
 							width: Kirigami.Units.gridUnit * 2.8
 							height: width
-							enabled: !app.trabajando
-							onClicked: app.borrarMapa(filaMapa.modelData)
+							enabled: !app.busy
+							onClicked: app.deleteMap(mapRow.modelData)
 							background: Rectangle {
 								radius: height / 2
-								color: borrar.pressed ? ajustes.p.rojo : "transparent"
+								color: remove.pressed ? settings.p.red : "transparent"
 							}
 							// The icon, smaller than its button: at full
 							// size the bin filled the whole circle and looked like
@@ -592,18 +592,18 @@ Item {
 									height: width
 									source: "edit-delete"
 									isMask: true
-									color: borrar.pressed ? ajustes.p.blanco
-										: ajustes.p.tintaSuave
+									color: remove.pressed ? settings.p.white
+										: settings.p.inkSoft
 								}
 							}
 						}
 					}
 				}
 
-				Fila {
-					visible: app.mapas.length === 0
-					titulo: qsTr("None downloaded")
-					apoyo: qsTr("routes and searches will go over the network")
+				SettingRow {
+					visible: app.maps.length === 0
+					title: qsTr("None downloaded")
+					hint: qsTr("routes and searches will go over the network")
 					enabled: false
 				}
 
@@ -611,44 +611,44 @@ Item {
 				// typing "europe/spain" with your finger needs room.
 				Item {
 					Layout.fillWidth: true
-					Layout.preferredHeight: ajustes.altoFila
+					Layout.preferredHeight: settings.rowHeight
 
 					RowLayout {
 						anchors.fill: parent
-						anchors.leftMargin: ajustes.margen
-						anchors.rightMargin: ajustes.margen
+						anchors.leftMargin: settings.margin
+						anchors.rightMargin: settings.margin
 						spacing: Kirigami.Units.smallSpacing
 
 						QQC2.TextField {
-							id: campoRegion
+							id: regionField
 							Layout.fillWidth: true
 							Layout.preferredHeight: Kirigami.Units.gridUnit * 2.8
 							placeholderText: qsTr("region, e.g. europe/spain")
-							color: ajustes.p.tintaOscura
-							placeholderTextColor: ajustes.p.tintaSuave
+							color: settings.p.inkDark
+							placeholderTextColor: settings.p.inkSoft
 							leftPadding: Kirigami.Units.largeSpacing
 							background: Rectangle {
 								radius: height / 2
-								color: ajustes.p.blanco
+								color: settings.p.white
 							}
-							onAccepted: if (bajar.enabled) app.bajarMapa(text.trim())
+							onAccepted: if (download.enabled) app.downloadMap(text.trim())
 						}
 
 						QQC2.AbstractButton {
-							id: bajar
+							id: download
 							Layout.preferredWidth: Kirigami.Units.gridUnit * 6
 							Layout.preferredHeight: Kirigami.Units.gridUnit * 2.8
-							enabled: !app.trabajando && campoRegion.text.trim().length > 2
-							onClicked: app.bajarMapa(campoRegion.text.trim())
+							enabled: !app.busy && regionField.text.trim().length > 2
+							onClicked: app.downloadMap(regionField.text.trim())
 							background: Rectangle {
 								radius: height / 2
-								color: bajar.enabled
-									? (bajar.pressed ? ajustes.p.azulCasco : ajustes.p.azul)
-									: ajustes.p.fondoAlto
+								color: download.enabled
+									? (download.pressed ? settings.p.blueCasing : settings.p.blue)
+									: settings.p.surfaceHigh
 							}
 							contentItem: QQC2.Label {
 								text: qsTr("Download")
-								color: bajar.enabled ? ajustes.p.blanco : ajustes.p.tintaSuave
+								color: download.enabled ? settings.p.white : settings.p.inkSoft
 								font.bold: true
 								horizontalAlignment: Text.AlignHCenter
 								verticalAlignment: Text.AlignVCenter
@@ -657,11 +657,11 @@ Item {
 					}
 				}
 
-				Fila {
-					titulo: qsTr("The map drawing needs network the first time")
-					apoyo: qsTr("afterwards it stays saved and that path is visible without coverage")
+				SettingRow {
+					title: qsTr("The map drawing needs network the first time")
+					hint: qsTr("afterwards it stays saved and that path is visible without coverage")
 					enabled: false
-					separador: false
+					separator: false
 				}
 
 				// A breather at the end, so the last row does not stick to the
