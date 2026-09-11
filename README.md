@@ -661,7 +661,7 @@ type, coordinates and hierarchy.
 `osmscout-server` queries it by first normalising the text with **libpostal**, which
 Alpine does not package — and that was what made me give the search up for blocked for
 days. But libpostal is only needed for the hard part, understanding that «c/ mayor 3» is
-«street mayor número 3». To search for a town or a street by its name, matching words is
+«calle mayor número 3». To search for a town or a street by its name, matching words is
 enough, and that can be done.
 
 Two things were needed:

@@ -83,10 +83,10 @@ public:
 	// The map for AROUND HERE: only the zoom 7 tiles that surround that position.
 	// It is what makes downloading the drawing 132 MB and not 1.9 GB.
 	Q_INVOKABLE void downloadDrawingNear(const QString &region, double lat,
-		double lon, int anillo);
+		double lon, int ring);
 	// The same tiles without downloading anything, so it can say how many there
 	// are and how much they will take up BEFORE starting.
-	Q_INVOKABLE QStringList boxesAt(double lat, double lon, int anillo) const;
+	Q_INVOKABLE QStringList boxesAt(double lat, double lon, int ring) const;
 	// The map for WHERE YOU ARE GOING: the tiles passed to it, and not the ones
 	// underneath the phone. It is what is needed before setting off on a trip.
 	Q_INVOKABLE void downloadDrawingBoxes(const QString &region,
