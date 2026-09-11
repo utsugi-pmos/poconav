@@ -6,7 +6,7 @@
 # place to put code -- which is why downloads, speech and the screen lock all
 # ended up as shell scripts poking at the settings file.
 cmake_minimum_required(VERSION 3.20)
-project(poconav VERSION 1.0)
+project(poconav VERSION 1.3)
 
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
