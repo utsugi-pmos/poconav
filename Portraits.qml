@@ -63,7 +63,7 @@ QtObject {
 			//
 			// It is not a made-up size: 540x400 is what is left in landscape
 			// with the keyboard open, which is a real situation.
-			{ f: "08b-routes-desbordada",    wide: 540,  tall: 400,  prep: "routes" },
+			{ f: "08b-routes-overflowed",    wide: 540,  tall: 400,  prep: "routes" },
 			{ f: "09-warning-landscape",       wide: 1200, tall: 540,  prep: "warning" },
 			{ f: "10-drive-landscape",    wide: 1200, tall: 540,  prep: "drive" },
 			{ f: "11-drive-vertical",    wide: 540,  tall: 1200, prep: "drive" }

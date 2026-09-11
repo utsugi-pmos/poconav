@@ -160,7 +160,7 @@ Item {
 		// staying silent would leave the screen as if nothing had happened.
 		QQC2.Label {
 			Layout.fillWidth: true
-			visible: panel.plan && panel.plan.status === "pidiendo"
+			visible: panel.plan && panel.plan.status === "requesting"
 			text: qsTr("Searching routes…")
 			color: panel.p.inkSoft
 		}

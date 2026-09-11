@@ -36,7 +36,7 @@ QtObject {
 	// and this same string is a couple of hundred bytes per kilometre.
 	property string shape: ""
 
-	// "", "pidiendo", "items", "error"
+	// "", "requesting", "items", "error"
 	property string status: ""
 	property string failure: ""
 	readonly property bool exists: status === "items" && points.length > 1
@@ -421,7 +421,7 @@ QtObject {
 
 		destination = dest
 		destinationName = name || ""
-		status = "pidiendo"
+		status = "requesting"
 		failure = ""
 
 		const query = {

@@ -25,7 +25,7 @@ Canvas {
 	onTurnChanged: requestPaint()
 	onRoundaboutChanged: requestPaint()
 	onDestinationChanged: requestPaint()
-	onSalidaChanged: requestPaint()
+	onExitNumberChanged: requestPaint()
 	onInkChanged: requestPaint()
 	onWidthChanged: requestPaint()
 	onHeightChanged: requestPaint()

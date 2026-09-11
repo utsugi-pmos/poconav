@@ -108,7 +108,7 @@ Item {
 					// A Canvas does not repaint just because the model behind it
 					// changed, so the change is watched by hand.
 					property var laneData: modelData
-					onDatosChanged: requestPaint()
+					onLaneDataChanged: requestPaint()
 					Component.onCompleted: requestPaint()
 				}
 			}

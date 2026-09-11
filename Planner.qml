@@ -47,7 +47,7 @@ QtObject {
 	property var destination: null
 	property string destinationName: ""
 
-	// "", "pidiendo", "ready", "error"
+	// "", "requesting", "ready", "error"
 	property string status: ""
 	property string failure: ""
 
@@ -96,7 +96,7 @@ QtObject {
 		origin = begin
 		destination = dest
 		destinationName = name || ""
-		status = "pidiendo"
+		status = "requesting"
 		failure = ""
 		routes = []
 		_rawA = null
@@ -232,7 +232,7 @@ QtObject {
 	// --- merge and sort -----------------------------------------------------
 
 	function _maybeFinish() {
-		if (status !== "pidiendo")
+		if (status !== "requesting")
 			return
 		if (!_rawA || (hasFilters && !_rawB))
 			return
