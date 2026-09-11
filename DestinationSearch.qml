@@ -57,7 +57,7 @@ Item {
 	// is no good, because a single search inserts twelve.
 	property int queries: 0
 
-	property string status: ""   // "", "buscando", "ready", "error"
+	property string status: ""   // "", "searching", "ready", "error"
 	property string failure: ""
 	property var _pending: null
 
@@ -185,7 +185,7 @@ Item {
 			_pending.abort()
 
 		results.clear()
-		status = "buscando"
+		status = "searching"
 		failure = ""
 
 		// With downloaded maps the search runs on the phone, otherwise over the network. Same
@@ -454,7 +454,7 @@ Item {
 				Layout.fillWidth: true
 				visible: text.length > 0
 				text: {
-					if (finder.status === "buscando")
+					if (finder.status === "searching")
 						return qsTr("Searching…")
 					if (finder.noNetwork)
 						return qsTr("No connection. Your saved places still work, and "

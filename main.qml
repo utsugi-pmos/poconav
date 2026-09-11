@@ -1540,7 +1540,7 @@ QQC2.ApplicationWindow {
 			anchors.bottomMargin: root.edge + Kirigami.Units.gridUnit
 			height: Kirigami.Units.gridUnit * 3.4
 			width: Math.min(mapArea.width * 0.6, Kirigami.Units.gridUnit * 20)
-			enabled: route.status !== "pidiendo"
+			enabled: route.status !== "requesting"
 			onClicked: finder.open()
 
 			background: Rectangle {
@@ -1562,7 +1562,7 @@ QQC2.ApplicationWindow {
 
 				QQC2.Label {
 					Layout.fillWidth: true
-					text: route.status === "pidiendo" ? qsTr("Calculating…") : qsTr("Where to?")
+					text: route.status === "requesting" ? qsTr("Calculating…") : qsTr("Where to?")
 					color: root.p.inkDark
 					font.pointSize: Kirigami.Theme.defaultFont.pointSize * 1.2
 					elide: Text.ElideRight

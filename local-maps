@@ -267,7 +267,7 @@ def download_component(entry, comp, vers):
                 destination_piece = DESTINATION
             sub = "%s/packages/%s" % (root.replace("-country", ""), name)
             url = SERVER + base + sub
-            local = os.path.join(DESTINATION, ".descargas", "%s-%s" % (comp, name))
+            local = os.path.join(DESTINATION, ".downloads", "%s-%s" % (comp, name))
             try:
                 download(url, local, "%s %d/%d" % (comp, i, len(packages)))
                 unpack(local, destination_piece)
@@ -292,7 +292,7 @@ def download_component(entry, comp, vers):
             if already_done(comp, name):
                 continue
             url = SERVER + base + "%s/packages/%s" % (root_srv, name)
-            local = os.path.join(DESTINATION, ".descargas", name)
+            local = os.path.join(DESTINATION, ".downloads", name)
             try:
                 download(url, local, "world base")
                 unpack(local, os.path.join(DESTINATION, "mapboxgl"))

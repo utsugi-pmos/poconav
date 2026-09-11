@@ -224,19 +224,22 @@ def index(region, db):
 	if region in _indexes and _indexes[region][1] == stamp:
 		return _indexes[region][0]
 
-	path = os.path.join(os.path.dirname(db), "busqueda-poconav.sqlite")
+	path = os.path.join(os.path.dirname(db), "search-poconav.sqlite")
 
-	# The index was called 'busqueda-quickmaps.sqlite' until the application changed
-	# its name. Without this the new name does not exist, it is rebuilt from scratch
-	# -- minutes with a large region, and silently, so all you see is that the search
-	# "finds nothing" -- and on top of that the old file is left taking up its place
-	# for nobody.
+	# The index has had three names: 'busqueda-quickmaps.sqlite' when the
+	# application was called something else, then 'busqueda-poconav.sqlite', and now
+	# this one. Both old names are renamed on sight. Without that the new name does
+	# not exist, the index is rebuilt from scratch -- minutes with a large region,
+	# and silently, so all you see is that the search "finds nothing" -- and the old
+	# file is left taking up its space for nobody.
 	#
 	# It is renamed, not copied: the index weighs its share and renaming cannot be
 	# left half done. If the new one is already there, the new one wins and the old
 	# one is deleted.
-	old = os.path.join(os.path.dirname(db), "busqueda-quickmaps.sqlite")
-	if os.path.isfile(old):
+	for old_name in ("busqueda-poconav.sqlite", "busqueda-quickmaps.sqlite"):
+		old = os.path.join(os.path.dirname(db), old_name)
+		if not os.path.isfile(old):
+			continue
 		try:
 			if os.path.isfile(path):
 				os.remove(old)
