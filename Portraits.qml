@@ -45,8 +45,8 @@ QtObject {
 	function run() {
 		// Each entry: the file name, whether it is landscape, and what to prepare.
 		_queue = [
-			{ f: "01-start-landscape",      wide: 1200, tall: 540,  prep: "explorar" },
-			{ f: "02-start-vertical",      wide: 540,  tall: 1200, prep: "explorar" },
+			{ f: "01-start-landscape",      wide: 1200, tall: 540,  prep: "explore" },
+			{ f: "02-start-vertical",      wide: 540,  tall: 1200, prep: "explore" },
 			{ f: "03-search-landscape",      wide: 1200, tall: 540,  prep: "search" },
 			{ f: "04-search-vertical",      wide: 540,  tall: 1200, prep: "search" },
 			{ f: "04b-results-vertical", wide: 540,  tall: 1200, prep: "results" },
@@ -104,21 +104,21 @@ QtObject {
 
 	function _prepare(what) {
 		const v = window
-		if (what === "explorar") {
+		if (what === "explore") {
 			v.closeAll()
-			v.mode = "explorar"
+			v.mode = "explore"
 		} else if (what === "search") {
 			v.closeAll()
-			v.mode = "explorar"
+			v.mode = "explore"
 			v.openFinder()
 		} else if (what === "results") {
 			v.closeAll()
-			v.mode = "explorar"
+			v.mode = "explore"
 			v.searchInPortrait("cartagena")
 			longWait.interval = 4000
 		} else if (what === "settings") {
 			v.closeAll()
-			v.mode = "explorar"
+			v.mode = "explore"
 			v.openSettings()
 		} else if (what === "routes" || what === "warning") {
 			v.closeAll()
@@ -143,7 +143,7 @@ QtObject {
 
 	function _fire() {
 		const e = _queue[_step]
-		if (e.prep === "explorar" || e.prep === "search" || e.prep === "settings")
+		if (e.prep === "explore" || e.prep === "search" || e.prep === "settings")
 			portraits._prepare(e.prep)
 		if (e.prep === "warning")
 			window.showWarning()

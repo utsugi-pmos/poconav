@@ -46,9 +46,9 @@ QQC2.ApplicationWindow {
 	// the planner come out with invisible letters.
 	color: root.p.surface
 
-	// "explorar" -> just the map. "vista" -> a route drawn, not started yet.
+	// "explore" -> just the map. "preview" -> a route drawn, not started yet.
 	// "drive" -> the driving panel, and the screen held awake.
-	property string mode: "explorar"
+	property string mode: "explore"
 	readonly property bool landscape: width > height
 
 	// --- where the position comes from ---------------------------------------
@@ -613,8 +613,8 @@ QQC2.ApplicationWindow {
 			// Only when the route arrives on its own -- one restored at
 			// startup. Coming from the planner the screen is already the list, and
 			// jumping to the preview would close it mid-choice.
-			if (status === "items" && root.mode === "explorar") {
-				root.mode = "vista"
+			if (status === "items" && root.mode === "explore") {
+				root.mode = "preview"
 				// Following has to stop or the very next fix re-centres the
 				// map on you and throws the framing away -- which is exactly
 				// what happened: the far end of the route was off screen and
@@ -696,7 +696,7 @@ QQC2.ApplicationWindow {
 
 	// A route set and driving mode, with no GPS and no car.
 	function driveTest(origin, dest) {
-		root.mode = "explorar"
+		root.mode = "explore"
 		route.compute(origin, dest, "Murcia")
 		driveWait.restart()
 	}
@@ -901,7 +901,7 @@ QQC2.ApplicationWindow {
 		// map to north. The tilted view is for looking ahead of the
 		// car; stopped over the map it only distorts and hides what is up top.
 		memory.threeD = false
-		root.mode = "explorar"
+		root.mode = "explore"
 		mapArea.item.bearing = 0
 	}
 
@@ -1533,7 +1533,7 @@ QQC2.ApplicationWindow {
 		QQC2.AbstractButton {
 			id: searchButton
 
-			visible: root.mode === "explorar"
+			visible: root.mode === "explore"
 			anchors.left: mapArea.left
 			anchors.bottom: mapArea.bottom
 			anchors.leftMargin: root.edge
@@ -1605,7 +1605,7 @@ QQC2.ApplicationWindow {
 		// and almost never needed ends up pressed without being read.
 		Rectangle {
 			id: routeDownload
-			visible: root.mode === "vista" && root.routeMissingBoxes.length > 0
+			visible: root.mode === "preview" && root.routeMissingBoxes.length > 0
 				&& !app.busy && app.hasNetwork
 			anchors.left: previewBar.left
 			anchors.right: previewBar.right
@@ -1662,7 +1662,7 @@ QQC2.ApplicationWindow {
 		Rectangle {
 			id: previewBar
 
-			visible: root.mode === "vista"
+			visible: root.mode === "preview"
 			anchors.left: mapArea.left
 			anchors.right: mapArea.right
 			anchors.bottom: mapArea.bottom
@@ -1778,7 +1778,7 @@ QQC2.ApplicationWindow {
 		// way.
 		QQC2.Label {
 			anchors.left: mapArea.left
-			anchors.bottom: root.mode === "vista" ? previewBar.top : mapArea.bottom
+			anchors.bottom: root.mode === "preview" ? previewBar.top : mapArea.bottom
 			anchors.leftMargin: root.edge
 			anchors.bottomMargin: Kirigami.Units.smallSpacing
 			// CARTO asks for its credit in addition to OSM's when its tiles are used.
@@ -1803,7 +1803,7 @@ QQC2.ApplicationWindow {
 			anchors.bottom: mapArea.bottom
 			anchors.rightMargin: root.edge
 			// Clear of the search pill, the attribution and the gesture bar.
-			anchors.bottomMargin: root.mode === "vista"
+			anchors.bottomMargin: root.mode === "preview"
 				? previewBar.height + root.edge * 2 : root.edge
 			// A fat finger and a bump: packed together you miss them.
 			spacing: root.gap
@@ -1831,7 +1831,7 @@ QQC2.ApplicationWindow {
 			}
 
 			MapButton {
-				visible: root.mode === "explorar"
+				visible: root.mode === "explore"
 				icon: "compass"
 				filled: root.orientBySensor
 				// Off, and visibly off, until the phone actually has the
@@ -1843,7 +1843,7 @@ QQC2.ApplicationWindow {
 			}
 
 			MapButton {
-				visible: root.mode === "explorar"
+				visible: root.mode === "explore"
 				caption: memory.threeD ? "2D" : "3D"
 				filled: memory.threeD
 				onClicked: memory.threeD = !memory.threeD
@@ -1853,7 +1853,7 @@ QQC2.ApplicationWindow {
 			// something you do with the car moving, and an extra button there
 			// is a button pressed by accident.
 			MapButton {
-				visible: root.mode === "explorar"
+				visible: root.mode === "explore"
 				icon: "configure"
 				onClicked: settingsPanel.open()
 			}

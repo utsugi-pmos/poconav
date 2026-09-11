@@ -112,7 +112,7 @@ void moveFromQuickMaps()
 //
 // The maths is the usual one for tile maps. The latitude goes through Mercator,
 // which is what makes a tile taller near the equator than near the pole.
-QStringList boxesNear(double lat, double lon, int anillo)
+QStringList boxesNear(double lat, double lon, int ring)
 {
 	const int n = 1 << 7;
 	const double latRad = qDegreesToRadians(qBound(-85.05, lat, 85.05));
@@ -121,8 +121,8 @@ QStringList boxesNear(double lat, double lon, int anillo)
 		/ M_PI) / 2.0 * n);
 
 	QStringList out;
-	for (int dy = -anillo; dy <= anillo; ++dy) {
-		for (int dx = -anillo; dx <= anillo; ++dx) {
+	for (int dy = -ring; dy <= ring; ++dy) {
+		for (int dx = -ring; dx <= ring; ++dx) {
 			const int y = y0 + dy;
 			if (y < 0 || y >= n)
 				continue;
@@ -560,19 +560,19 @@ void Backend::downloadDrawing(const QString &region)
 
 // The map for around here: only the tiles that surround this position.
 //
-// 'anillo' is how many tiles on each side. 0 is only the one underneath -- 132
+// 'ring' is how many tiles on each side. 0 is only the one underneath -- 132
 // MB --, 1 is the nine around it. It is left to choose because the difference
 // between "where I live" and "Saturday's trip" is exactly that.
 void Backend::downloadDrawingNear(const QString &region, double lat, double lon,
-	int anillo)
+	int ring)
 {
-	m_boxes = boxesNear(lat, lon, qBound(0, anillo, 3));
+	m_boxes = boxesNear(lat, lon, qBound(0, ring, 3));
 	_downloadMap(region, true);
 }
 
-QStringList Backend::boxesAt(double lat, double lon, int anillo) const
+QStringList Backend::boxesAt(double lat, double lon, int ring) const
 {
-	return boxesNear(lat, lon, qBound(0, anillo, 3));
+	return boxesNear(lat, lon, qBound(0, ring, 3));
 }
 
 QStringList Backend::boxesInRectangle(double minLat, double minLon,
