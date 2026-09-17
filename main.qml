@@ -248,7 +248,11 @@ QQC2.ApplicationWindow {
 	// at the top level of its file.
 	component MapButton: QQC2.AbstractButton {
 		id: bm
-		property string icon: ""
+		// "glyph", not "icon": AbstractButton's own icon is FINAL since Qt 6.11,
+		// and redeclaring it made the whole window fail to load ("Cannot
+		// override FINAL property") -- PocoNav did not open at all, seen on the
+		// phone on 2026-09-17.
+		property string glyph: ""
 		// For the buttons whose meaning is a word, not a picture -- "3D" says
 		// it in two characters and no glyph would say it better.
 		property string caption: ""
@@ -272,7 +276,7 @@ QQC2.ApplicationWindow {
 				width: Math.round(parent.width * 0.62)
 				height: width
 				visible: bm.caption.length === 0
-				source: bm.icon
+				source: bm.glyph
 				isMask: true
 				color: bm.filled ? root.p.white : root.p.blue
 			}
@@ -1818,7 +1822,7 @@ QQC2.ApplicationWindow {
 			// The only voice control, and within reach while driving too: silencing it
 			// is exactly what you want to be able to do without thinking.
 			MapButton {
-				icon: memory.voice ? "audio-volume-high" : "audio-volume-muted"
+				glyph: memory.voice ? "audio-volume-high" : "audio-volume-muted"
 				filled: memory.voice
 				onClicked: {
 					memory.voice = !memory.voice
@@ -1832,7 +1836,7 @@ QQC2.ApplicationWindow {
 
 			MapButton {
 				visible: root.mode === "explore"
-				icon: "compass"
+				glyph: "compass"
 				filled: root.orientBySensor
 				// Off, and visibly off, until the phone actually has the
 				// sensor. A toggle that silently does nothing is worse than
@@ -1854,7 +1858,7 @@ QQC2.ApplicationWindow {
 			// is a button pressed by accident.
 			MapButton {
 				visible: root.mode === "explore"
-				icon: "configure"
+				glyph: "configure"
 				onClicked: settingsPanel.open()
 			}
 
@@ -1863,14 +1867,14 @@ QQC2.ApplicationWindow {
 				// stacked buttons eat the whole side. The pinch
 				// does the same, and while driving the zoom sets itself.
 				visible: root.mode !== "drive" && !root.landscape
-				icon: "zoom-in"
+				glyph: "zoom-in"
 				onClicked: mapArea.item.zoomLevel = Math.min(mapArea.item.maximumZoomLevel,
 					Math.round(mapArea.item.zoomLevel) + 1)
 			}
 
 			MapButton {
 				visible: root.mode !== "drive" && !root.landscape
-				icon: "zoom-out"
+				glyph: "zoom-out"
 				onClicked: mapArea.item.zoomLevel = Math.max(mapArea.item.minimumZoomLevel,
 					Math.round(mapArea.item.zoomLevel) - 1)
 			}
@@ -1878,7 +1882,7 @@ QQC2.ApplicationWindow {
 			MapButton {
 				// Filled blue while the map is glued to you, white while it is
 				// not, so the mode is readable without reading anything.
-				icon: root.follow ? "gps" : "crosshairs"
+				glyph: root.follow ? "gps" : "crosshairs"
 				filled: root.follow
 				enabled: root.hasPosition
 				// The one control that still has to be easy to hit while
