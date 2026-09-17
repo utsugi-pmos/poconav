@@ -41,7 +41,7 @@ qt_add_qml_module(poconav
 		Theme.qml
 		Route.qml
 		Voice.qml
-		Settings.qml
+		SettingsPanel.qml
 		DestinationSearch.qml
 		DrivingPanel.qml
 		ManeuverArrow.qml

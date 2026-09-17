@@ -1939,7 +1939,11 @@ QQC2.ApplicationWindow {
 			onCancelled: {}
 		}
 
-		Settings {
+		// SettingsPanel, not Settings: main.qml also imports QtCore, whose
+		// Settings type is the one keeping the app's memory above. Qt 6.11 took
+		// this one for QtCore's too, and the window failed to load with
+		// "Cannot assign to non-existent property" on the panel's handlers.
+		SettingsPanel {
 			id: settingsPanel
 			region: memory.region
 			onRegionChanged: memory.region = region
